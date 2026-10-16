@@ -1,0 +1,176 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---------- design tokens ---------- */
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: 6 7 15;
+  --ink: 232 235 248;
+  --muted: 140 147 175;
+  --line: 255 255 255;
+  --glass: 255 255 255;
+  --glass-a: 0.035;
+  --glass-a2: 0.06;
+  --line-a: 0.08;
+  --cyan: 34 211 238;
+  --violet: 167 139 250;
+  --pink: 244 114 182;
+  --pos: 52 211 153;
+  --neg: 248 113 113;
+  --amber: 251 191 36;
+  --grid-a: 0.045;
+  --aurora-a: 0.55;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: 242 244 250;
+  --ink: 15 18 38;
+  --muted: 92 100 126;
+  --line: 15 18 38;
+  --glass: 255 255 255;
+  --glass-a: 0.66;
+  --glass-a2: 0.85;
+  --line-a: 0.09;
+  --cyan: 8 145 178;
+  --violet: 124 58 237;
+  --pink: 219 39 119;
+  --pos: 5 150 105;
+  --neg: 220 38 38;
+  --amber: 202 138 4;
+  --grid-a: 0.06;
+  --aurora-a: 0.35;
+}
+
+html, body, #root { min-height: 100%; }
+body {
+  @apply font-sans antialiased;
+  background: rgb(var(--bg));
+  color: rgb(var(--ink));
+  -webkit-tap-highlight-color: transparent;
+}
+::selection { background: rgb(var(--cyan) / 0.3); }
+* { scrollbar-width: thin; scrollbar-color: rgb(var(--line) / 0.15) transparent; }
+
+/* ---------- animated backdrop ---------- */
+.backdrop { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+.backdrop .grid-lines {
+  position: absolute; inset: -2px;
+  background-image:
+    linear-gradient(rgb(var(--line) / var(--grid-a)) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(var(--line) / var(--grid-a)) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 30%, transparent 75%);
+  animation: grid-pan 40s linear infinite;
+}
+.backdrop .blob {
+  position: absolute; border-radius: 9999px; filter: blur(90px); opacity: var(--aurora-a);
+  will-change: transform;
+}
+.backdrop .b1 { width: 46vw; height: 46vw; left: -10vw; top: -16vw; background: rgb(var(--cyan) / .55); animation: float1 26s ease-in-out infinite; }
+.backdrop .b2 { width: 40vw; height: 40vw; right: -12vw; top: -6vw; background: rgb(var(--violet) / .6); animation: float2 32s ease-in-out infinite; }
+.backdrop .b3 { width: 34vw; height: 34vw; left: 30vw; bottom: -22vw; background: rgb(var(--pink) / .35); animation: float3 38s ease-in-out infinite; }
+.backdrop .noise {
+  position: absolute; inset: 0; opacity: .035; mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+@keyframes grid-pan { to { background-position: 56px 56px, 56px 56px; } }
+@keyframes float1 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(12vw, 8vw) scale(1.15); } }
+@keyframes float2 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(-10vw, 12vw) scale(.9); } }
+@keyframes float3 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(-14vw, -8vw) scale(1.2); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .backdrop *, .shimmer, .spin-slow { animation: none !important; }
+}
+
+/* ---------- surfaces ---------- */
+@layer components {
+  .glass {
+    background: rgb(var(--glass) / var(--glass-a));
+    border: 1px solid rgb(var(--line) / var(--line-a));
+    backdrop-filter: blur(18px) saturate(140%);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+  }
+  .glass-strong {
+    background: rgb(var(--glass) / var(--glass-a2));
+    border: 1px solid rgb(var(--line) / var(--line-a));
+    backdrop-filter: blur(24px) saturate(150%);
+    -webkit-backdrop-filter: blur(24px) saturate(150%);
+  }
+  .card { @apply glass rounded-2xl relative overflow-hidden; }
+  /* cursor-following spotlight (set --mx/--my from JS) */
+  .spotlight::before {
+    content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity .3s;
+    background: radial-gradient(420px circle at var(--mx, 50%) var(--my, 50%), rgb(var(--cyan) / .10), transparent 45%);
+  }
+  .spotlight:hover::before { opacity: 1; }
+
+  .label { @apply text-[11px] font-semibold uppercase tracking-[0.14em] text-muted; }
+  .num { @apply font-mono tabular-nums tracking-tight; }
+  .gradient-text {
+    background: linear-gradient(100deg, rgb(var(--cyan)), rgb(var(--violet)) 55%, rgb(var(--pink)));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .hairline { border-color: rgb(var(--line) / var(--line-a)); }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-3.5 py-2 text-sm font-semibold transition
+      disabled:opacity-50 disabled:pointer-events-none select-none whitespace-nowrap;
+    background: rgb(var(--line) / .06);
+    border: 1px solid rgb(var(--line) / var(--line-a));
+  }
+  .btn:hover { background: rgb(var(--line) / .1); }
+  .btn:active { transform: scale(.97); }
+  .btn-sm { @apply px-2.5 py-1.5 text-xs rounded-lg; }
+  .btn-primary {
+    color: #04131a; border-color: transparent;
+    background: linear-gradient(120deg, rgb(var(--cyan)), rgb(var(--violet)));
+    box-shadow: 0 6px 24px -6px rgb(var(--cyan) / .55);
+  }
+  .btn-primary:hover { filter: brightness(1.08); background: linear-gradient(120deg, rgb(var(--cyan)), rgb(var(--violet))); }
+  .btn-danger { color: rgb(var(--neg)); border-color: rgb(var(--neg) / .35); background: rgb(var(--neg) / .08); }
+  .btn-danger:hover { background: rgb(var(--neg) / .16); }
+  .btn-ghost { background: transparent; border-color: transparent; }
+  .icon-btn {
+    @apply inline-grid place-items-center h-8 w-8 rounded-lg text-muted transition;
+  }
+  .icon-btn:hover { color: rgb(var(--ink)); background: rgb(var(--line) / .08); }
+
+  .input {
+    @apply w-full rounded-xl px-3.5 py-2.5 text-sm outline-none transition placeholder:text-muted/60;
+    background: rgb(var(--line) / .04);
+    border: 1px solid rgb(var(--line) / var(--line-a));
+    color: rgb(var(--ink));
+  }
+  .input:focus { border-color: rgb(var(--cyan) / .6); box-shadow: 0 0 0 4px rgb(var(--cyan) / .12); }
+  select.input { appearance: none; background-image: linear-gradient(45deg, transparent 50%, rgb(var(--muted)) 50%), linear-gradient(135deg, rgb(var(--muted)) 50%, transparent 50%); background-position: calc(100% - 18px) 55%, calc(100% - 13px) 55%; background-size: 5px 5px; background-repeat: no-repeat; padding-right: 2rem; }
+  select.input option { background: rgb(var(--bg)); color: rgb(var(--ink)); }
+  .field-label { @apply mb-1.5 block text-xs font-medium text-muted; }
+
+  .chip { @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide; background: rgb(var(--line) / .07); color: rgb(var(--muted)); }
+
+  .tbl { @apply w-full text-sm; border-collapse: separate; border-spacing: 0; }
+  .tbl th { @apply px-3 py-2.5 text-left text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted whitespace-nowrap; border-bottom: 1px solid rgb(var(--line) / var(--line-a)); }
+  .tbl td { @apply px-3 py-3 whitespace-nowrap; border-bottom: 1px solid rgb(var(--line) / .05); }
+  .tbl tbody tr { transition: background .2s; }
+  .tbl tbody tr:hover { background: rgb(var(--line) / .035); }
+  .tbl tbody tr:last-child td { border-bottom: none; }
+
+  .pos { color: rgb(var(--pos)); }
+  .neg { color: rgb(var(--neg)); }
+}
+
+.shimmer {
+  background: linear-gradient(90deg, transparent, rgb(var(--line) / .08), transparent);
+  background-size: 200% 100%; animation: shimmer 1.6s infinite;
+}
+@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.spin-slow { animation: spin 18s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+input[type="range"] { accent-color: rgb(var(--cyan)); }
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator { filter: var(--picker-filter, invert(.8)); cursor: pointer; }
+:root[data-theme="light"] { --picker-filter: none; }

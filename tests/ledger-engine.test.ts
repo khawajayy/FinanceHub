@@ -1,0 +1,297 @@
+// @ts-nocheck
+import { test, expect, describe } from "vitest";
+import LE from "../src/engine/ledger-engine.js";
+
+const D = 86400000;
+const iso = (ms) => new Date(ms).toISOString();
+const T0 = Date.UTC(2026, 0, 1);
+
+function stateWith(transactions, extra = {}) {
+  return Object.assign({ transactions, assets: {}, prices: {}, priceHistory: {} }, extra);
+}
+
+describe("LedgerEngine - accounting", () => {
+  test("Intel -> Sandisk chain keeps realized loss and measures against original capital", () => {
+    const s = stateWith([
+      { id: "1", type: "DEPOSIT", amount: 3000, date: iso(T0) },
+      { id: "2", type: "BUY", assetId: "stock:INTC", qty: 100, price: 30, fee: 0, date: iso(T0 + D) },
+      { id: "3", type: "SELL", assetId: "stock:INTC", qty: 100, price: 25, fee: 0, date: iso(T0 + 2 * D) },
+      { id: "4", type: "BUY", assetId: "stock:SNDK", qty: 50, price: 50, fee: 0, date: iso(T0 + 3 * D) },
+    ], { prices: { "stock:SNDK": { price: 60 } } });
+    const p = LE.summarize(s);
+    expect(p.netCapital).toBe(3000);
+    expect(p.realized).toBe(-500);
+    expect(p.cash).toBe(0);
+    expect(p.equity).toBe(3000);
+    expect(p.totalReturn).toBe(0);
+    expect(p.holdings[0].unrealized).toBe(500);
+  });
+
+  test("fees are capitalized into basis and reduce sale proceeds", () => {
+    const s = stateWith([
+      { id: "1", type: "DEPOSIT", amount: 1000, date: iso(T0) },
+      { id: "2", type: "BUY", assetId: "a", qty: 10, price: 50, fee: 5, date: iso(T0 + 1) },
+      { id: "3", type: "SELL", assetId: "a", qty: 5, price: 60, fee: 2, date: iso(T0 + 2) },
+    ]);
+    const p = LE.summarize(s);
+    expect(p.cash).toBeCloseTo(1000 - 505 + 298, 9);
+    expect(p.realized).toBeCloseTo(298 - 252.5, 9);
+    expect(p.feesPaid).toBe(7);
+    expect(p.positions.a.costBasis).toBeCloseTo(252.5, 9);
+  });
+
+  test("orders same-timestamp transactions by _seq", () => {
+    const d = iso(T0);
+    const s = stateWith([
+      { id: "b", type: "BUY", assetId: "a", qty: 1, price: 100, date: d, _seq: 1 },
+      { id: "a", type: "DEPOSIT", amount: 100, date: d, _seq: 0 },
+      { id: "c", type: "SELL", assetId: "a", qty: 1, price: 150, date: d, _seq: 2 },
+    ]);
+    expect(LE.realizedBySell(s.transactions).c).toBe(50);
+  });
+
+  test("asset adjustments add at zero cost and remove at average cost", () => {
+    const s = stateWith([
+      { id: "1", type: "DEPOSIT", amount: 100, date: iso(T0) },
+      { id: "2", type: "BUY", assetId: "a", qty: 10, price: 10, date: iso(T0 + 1) },
+      { id: "3", type: "ADJUST", target: "asset", assetId: "a", qtyDelta: 10, date: iso(T0 + 2) },
+      { id: "4", type: "ADJUST", target: "asset", assetId: "a", qtyDelta: -5, date: iso(T0 + 3) },
+    ]);
+    const pos = LE.summarize(s).positions.a;
+    expect(pos.qty).toBe(15);
+    expect(pos.costBasis).toBeCloseTo(75, 9);
+  });
+
+  test("excludeId replays the ledger without the transaction being edited", () => {
+    const s = stateWith([
+      { id: "1", type: "DEPOSIT", amount: 100, date: iso(T0) },
+      { id: "2", type: "WITHDRAW", amount: 40, date: iso(T0 + 1) },
+    ]);
+    expect(LE.summarize(s).cash).toBe(60);
+    expect(LE.summarize(s, "2").cash).toBe(100);
+  });
+});
+
+describe("LedgerEngine - valuation", () => {
+  test("interpolate uses binary search with linear interpolation and clamps at the ends", () => {
+    const pts = [{ t: 0, p: 10 }, { t: 10, p: 20 }, { t: 20, p: 40 }];
+    expect(LE.interpolate(pts, -5)).toBe(10);
+    expect(LE.interpolate(pts, 5)).toBe(15);
+    expect(LE.interpolate(pts, 15)).toBe(30);
+    expect(LE.interpolate(pts, 99)).toBe(40);
+  });
+
+  test("valueSeries matches independent point-in-time replays", () => {
+    const txns = [
+      { id: "1", type: "DEPOSIT", amount: 1000, date: iso(T0) },
+      { id: "2", type: "BUY", assetId: "a", qty: 10, price: 50, date: iso(T0 + D) },
+      { id: "3", type: "DEPOSIT", amount: 500, date: iso(T0 + 3 * D) },
+      { id: "4", type: "SELL", assetId: "a", qty: 5, price: 80, date: iso(T0 + 5 * D) },
+    ];
+    const ctx = { transactions: txns, prices: {}, now: T0 + 10 * D,
+      priceHistory: { a: { points: [{ t: T0, p: 50 }, { t: T0 + 10 * D, p: 100 }] } } };
+    const times = [T0 + 9 * D, T0 + 2 * D, T0 + 4 * D, T0 + 6 * D];
+    const series = LE.valueSeries(ctx, times, "all");
+    expect(series.map((x) => x.t)).toEqual([...times].sort((a, b) => a - b));
+    for (const pt of series) {
+      const book = LE.replay(txns.filter((t) => new Date(t.date).getTime() <= pt.t));
+      const held = book.pos.a ? book.pos.a.qty : 0;
+      expect(pt.value).toBeCloseTo(book.cash + held * LE.interpolate(ctx.priceHistory.a.points, pt.t), 6);
+      expect(pt.netCapital).toBe(book.deposits - book.withdrawals);
+    }
+  });
+
+  test("equitySeries is empty for an empty ledger and pins the last point to live equity", () => {
+    const R = { startTs: -Infinity, endTs: T0 + 5 * D, isAll: true };
+    expect(LE.equitySeries({ transactions: [], prices: {}, priceHistory: {}, now: T0 }, R, "all", 0, [])).toEqual([]);
+    const ctx = { transactions: [{ id: "1", type: "DEPOSIT", amount: 100, date: iso(T0) }], prices: {}, priceHistory: {}, now: T0 + 5 * D };
+    const s = LE.equitySeries(ctx, R, "all", 123.456, []);
+    expect(s.length).toBeGreaterThan(2);
+    expect(s[s.length - 1].v).toBe(123.46);
+    expect(s[s.length - 1].profit).toBe(23.46);
+  });
+
+  test("rangeStats counts only in-window activity but uses full-history cost basis", () => {
+    const txns = [
+      { id: "1", type: "DEPOSIT", amount: 1000, date: iso(T0) },
+      { id: "2", type: "BUY", assetId: "a", qty: 10, price: 50, fee: 1, date: iso(T0 + D) },
+      { id: "3", type: "SELL", assetId: "a", qty: 10, price: 60, fee: 2, date: iso(T0 + 10 * D) },
+    ];
+    const ctx = { transactions: txns, prices: {}, priceHistory: {}, now: T0 + 20 * D };
+    const r = LE.rangeStats(ctx, { startTs: T0 + 5 * D, endTs: T0 + 20 * D });
+    expect(r.depositsP).toBe(0);
+    expect(r.sellsP).toBe(1);
+    expect(r.feesP).toBe(2);
+    expect(r.realizedP).toBeCloseTo(598 - 501, 9);
+  });
+});
+
+describe("LedgerEngine - validation", () => {
+  test("safeUrl only allows absolute http(s) URLs", () => {
+    expect(LE.safeUrl("https://example.com/a?b=1")).toBe("https://example.com/a?b=1");
+    expect(LE.safeUrl("javascript:alert(1)")).toBe("");
+    expect(LE.safeUrl("JaVaScRiPt:alert(1)")).toBe("");
+    expect(LE.safeUrl("data:text/html,<script>")).toBe("");
+    expect(LE.safeUrl("/relative")).toBe("");
+    expect(LE.safeUrl(null)).toBe("");
+  });
+
+  test("sanitizeTransactions drops malformed rows and prototype-polluting ids", () => {
+    const { transactions, dropped } = LE.sanitizeTransactions([
+      { id: "ok", type: "DEPOSIT", amount: 10, date: iso(T0) },
+      { id: "neg", type: "DEPOSIT", amount: -10, date: iso(T0) },
+      { id: "str", type: "DEPOSIT", amount: "10", date: iso(T0) },
+      { id: "inf", type: "BUY", assetId: "a", qty: Infinity, price: 1, date: iso(T0) },
+      { id: "proto", type: "BUY", assetId: "__proto__", qty: 1, price: 1, date: iso(T0) },
+      { id: "date", type: "DEPOSIT", amount: 10, date: "not a date" },
+      { id: "type", type: "STEAL", amount: 10, date: iso(T0) },
+      null,
+      { id: "ok", type: "WITHDRAW", amount: 5, date: iso(T0), note: "x".repeat(900), evil: "<script>" },
+    ]);
+    expect(dropped).toBe(7);
+    expect(transactions).toHaveLength(2);
+    expect(transactions[0].id).toBe("ok");
+    expect(transactions[1].id).not.toBe("ok");            // duplicate id re-keyed
+    expect(transactions[1].note).toHaveLength(500);
+    expect(transactions[1]).not.toHaveProperty("evil");
+  });
+
+  test("replaying hostile asset ids never pollutes Object.prototype", () => {
+    LE.replay([{ id: "x", type: "BUY", assetId: "__proto__", qty: 1, price: 1, date: iso(T0) }]);
+    expect(({}).qty).toBeUndefined();
+    expect(LE.sanitizeAssets(JSON.parse('{"__proto__":{"id":"__proto__","type":"crypto","symbol":"X"}}'))).toEqual({});
+  });
+
+  test("sanitizeAsset strips unsafe image URLs and bad CoinGecko ids", () => {
+    const a = LE.sanitizeAsset({ id: "crypto:X", type: "crypto", symbol: "X", name: "n", coingeckoId: "../../x?y", img: "javascript:alert(1)" });
+    expect(a.img).toBeNull();
+    expect(a.coingeckoId).toBeNull();
+    expect(LE.sanitizeAsset({ id: "crypto:X", type: "nft", symbol: "X" })).toBeNull();
+  });
+
+  test("sanitizeSettings keeps only known values", () => {
+    const d = { finnhubKey: "", autoRefreshSec: 0, secondaryCurrency: "PKR", manualRate: null };
+    const s = LE.sanitizeSettings({ finnhubKey: " abc\n123 ", autoRefreshSec: 1, secondaryCurrency: "<b>", manualRate: -3, extra: 1 }, d);
+    expect(s).toEqual({ finnhubKey: "abc123", autoRefreshSec: 0, secondaryCurrency: "PKR", manualRate: null, owedToOthers: 0 });
+  });
+
+  test("sanitizeSettings keeps a valid owedToOthers and drops bad ones", () => {
+    const d = { finnhubKey: "", autoRefreshSec: 0, secondaryCurrency: "PKR", manualRate: null, owedToOthers: 0 };
+    expect(LE.sanitizeSettings({ owedToOthers: 1234.567 }, d).owedToOthers).toBe(1234.57);
+    expect(LE.sanitizeSettings({ owedToOthers: -50 }, d).owedToOthers).toBe(0);
+    expect(LE.sanitizeSettings({ owedToOthers: "500" }, d).owedToOthers).toBe(0);
+    expect(LE.sanitizeSettings({ owedToOthers: Infinity }, d).owedToOthers).toBe(0);
+    expect(LE.sanitizeSettings({}, d).owedToOthers).toBe(0);
+  });
+
+  test("sanitizeUi falls back to defaults for unknown values", () => {
+    const u = LE.sanitizeUi({ view: "<img>", mode: "goal", theme: "dark", range: { preset: "custom", start: "2026-01-01", end: "x" }, chartAsset: "__proto__" });
+    expect(u.view).toBe("dashboard");
+    expect(u.mode).toBe("goal");
+    expect(u.range).toEqual({ preset: "custom", start: "2026-01-01", end: null });
+    expect(u.chartAsset).toBe("all");
+    expect(u.combineSells).toBe(true);
+  });
+});
+
+describe("LedgerEngine - trade analytics & grouped partial sells", () => {
+  test("combines successive partial sells of SNDK and computes collective P/L and analytics", () => {
+    const txns = [
+      { id: "1", type: "DEPOSIT", amount: 2000, date: iso(T0) },
+      { id: "2", type: "BUY", assetId: "stock:SNDK", qty: 100, price: 10, fee: 0, date: iso(T0 + D) },
+      { id: "3", type: "SELL", assetId: "stock:SNDK", qty: 50, price: 14, fee: 0, date: iso(T0 + 2 * D) },
+      { id: "4", type: "SELL", assetId: "stock:SNDK", qty: 50, price: 8, fee: 0, date: iso(T0 + 3 * D) },
+    ];
+    const res = LE.computeClosedTradesAndAnalytics(txns, { isAll: true }, { "stock:SNDK": { symbol: "SNDK" } });
+    expect(res.allSellGroups).toHaveLength(1);
+    const grp = res.allSellGroups[0];
+    expect(grp.isCombined).toBe(true);
+    expect(grp.items).toHaveLength(2);
+    expect(grp.totalQty).toBe(100);
+    expect(grp.totalCashImpact).toBe(1100);
+    expect(grp.collectiveRealized).toBe(100);
+
+    const a = res.analytics;
+    expect(a.totalClosedTrades).toBe(1);
+    expect(a.winTrades).toBe(1);
+    expect(a.winAmount).toBe(100);
+    expect(a.lossTrades).toBe(0);
+    expect(a.lossAmount).toBe(0);
+    expect(a.netRealized).toBe(100);
+    expect(a.winRatePct).toBe(100);
+    expect(a.profitFactor).toBe(Infinity);
+    expect(grp.holdingTimeDays).toBe(1.5);
+    expect(a.avgHoldingTimeProfitableDays).toBe(1.5);
+    expect(a.avgHoldingTimeAllDays).toBe(1.5);
+  });
+
+  test("intervening BUY resets active sell group so sells are treated as separate trades", () => {
+    const txns = [
+      { id: "1", type: "DEPOSIT", amount: 3000, date: iso(T0) },
+      { id: "2", type: "BUY", assetId: "stock:SNDK", qty: 100, price: 10, fee: 0, date: iso(T0 + D) },
+      { id: "3", type: "SELL", assetId: "stock:SNDK", qty: 50, price: 12, fee: 0, date: iso(T0 + 2 * D) },
+      { id: "4", type: "BUY", assetId: "stock:SNDK", qty: 50, price: 10, fee: 0, date: iso(T0 + 3 * D) },
+      { id: "5", type: "SELL", assetId: "stock:SNDK", qty: 100, price: 8, fee: 0, date: iso(T0 + 4 * D) },
+    ];
+    const res = LE.computeClosedTradesAndAnalytics(txns, { isAll: true }, { "stock:SNDK": { symbol: "SNDK" } });
+    expect(res.allSellGroups).toHaveLength(2);
+    expect(res.allSellGroups[0].isCombined).toBe(false);
+    expect(res.allSellGroups[1].isCombined).toBe(false);
+    expect(res.analytics.totalClosedTrades).toBe(2);
+    // Trade 1 (win: +$100): bought at T0+D, sold at T0+2D -> 1 day
+    expect(res.allSellGroups[0].holdingTimeDays).toBe(1);
+    // Trade 2 (loss: -$200): 50 units bought at T0+D sold at T0+4D (3 days), 50 units bought at T0+3D sold at T0+4D (1 day) -> avg 2 days
+    expect(res.allSellGroups[1].holdingTimeDays).toBe(2);
+    // Only Trade 1 is profitable
+    expect(res.analytics.avgHoldingTimeProfitableDays).toBe(1);
+    // All closed trades average: (1 + 2) / 2 = 1.5 days
+    expect(res.analytics.avgHoldingTimeAllDays).toBe(1.5);
+  });
+
+  test("exposes per-sell and per-fill holding time", () => {
+    const H = 3600000;
+    const txns = [
+      { id: "1", type: "DEPOSIT", amount: 3000, date: iso(T0) },
+      { id: "2", type: "BUY", assetId: "crypto:btc", qty: 2, price: 100, fee: 0, date: iso(T0) },
+      { id: "3", type: "SELL", assetId: "crypto:btc", qty: 1, price: 110, fee: 0, date: iso(T0 + 2 * H) },
+      { id: "4", type: "SELL", assetId: "crypto:btc", qty: 1, price: 110, fee: 0, date: iso(T0 + 6 * H) },
+    ];
+    const res = LE.computeClosedTradesAndAnalytics(txns, { isAll: true }, {});
+    expect(res.holdingMsByTxn["3"]).toBe(2 * H);
+    expect(res.holdingMsByTxn["4"]).toBe(6 * H);
+    const grp = res.allSellGroups[0];
+    expect(grp.items.map((it) => it.holdingTimeMs)).toEqual([2 * H, 6 * H]);
+    expect(grp.holdingTimeMs).toBe(4 * H);
+    // intraday averages keep their precision (4h = 1/6 day)
+    expect(res.analytics.avgHoldingTimeProfitableDays).toBeCloseTo(1 / 6, 10);
+  });
+
+  test("sells with no matching buy lot do not drag the average holding time down", () => {
+    const txns = [
+      { id: "1", type: "DEPOSIT", amount: 3000, date: iso(T0) },
+      { id: "2", type: "BUY", assetId: "stock:A", qty: 10, price: 10, fee: 0, date: iso(T0) },
+      { id: "3", type: "SELL", assetId: "stock:A", qty: 10, price: 12, fee: 0, date: iso(T0 + 2 * D) },
+      // sold without any recorded buy (e.g. imported holding) -> no duration
+      { id: "4", type: "SELL", assetId: "stock:B", qty: 1, price: 50, fee: 0, date: iso(T0 + 3 * D) },
+    ];
+    const res = LE.computeClosedTradesAndAnalytics(txns, { isAll: true }, {});
+    expect(res.analytics.winTrades).toBe(2);
+    expect(res.holdingMsByTxn["4"]).toBeUndefined();
+    expect(res.analytics.avgHoldingTimeProfitableDays).toBe(2);
+    expect(res.analytics.avgHoldingTimeAllDays).toBe(2);
+  });
+
+  test("sanitizeGoals preserves valid tradeDays and ignores non-positive values", () => {
+    const sanitized = LE.sanitizeGoals([
+      { id: "g1", name: "Goal 1", target: 5000, profitPct: 10, tradeDays: 3.5 },
+      { id: "g2", name: "Goal 2", target: 10000, profitPct: 15, tradeDays: -2 },
+      { id: "g3", name: "Goal 3", target: 20000, profitPct: 12, tradeDays: "not-a-num" },
+      { id: "g4", name: "Goal 4", target: 25000, profitPct: 10 }
+    ]);
+    expect(sanitized[0].tradeDays).toBe(3.5);
+    expect(sanitized[1].tradeDays).toBeNull();
+    expect(sanitized[2].tradeDays).toBeNull();
+    expect(sanitized[3].tradeDays).toBeNull();
+  });
+});
+

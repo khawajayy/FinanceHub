@@ -1,0 +1,62 @@
+rules_version = '2';
+// Nexus Finance — each signed-in user can only read/write their own data.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    // ---------- Investments: one ledger document per user (shape shared with the old CryptoLedger app) ----------
+    function validLedger(d) {
+      return d.keys().hasOnly(['transactions', 'assets', 'settings', 'goals', 'favorites', 'updatedAt', 'goal'])
+        && d.keys().hasAll(['transactions', 'updatedAt'])
+        && d.transactions is list
+        && d.transactions.size() <= 50000
+        && d.updatedAt is number
+        && (!('assets' in d) || d.assets is map)
+        && (!('settings' in d) || d.settings is map)
+        && (!('goals' in d) || d.goals is list)
+        && (!('favorites' in d) || d.favorites is list);
+    }
+
+    match /ledgers/{uid} {
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid) && validLedger(request.resource.data);
+    }
+
+    // ---------- Expenses ----------
+    function validTxn(d) {
+      return d.keys().hasOnly(['txn_date', 'description', 'amount', 'category', 'direction', 'created_at'])
+        && d.txn_date is string && d.txn_date.matches('^\d{4}-\d{2}-\d{2}$')
+        && d.description is string && d.description.size() > 0 && d.description.size() <= 200
+        && d.amount is number && d.amount >= 0
+        && (d.category == null || (d.category is string && d.category.size() <= 80))
+        && d.direction in ['IN', 'OUT']
+        && d.created_at is number;
+    }
+
+    function validAccount(d) {
+      return d.keys().hasOnly(['name', 'kind', 'balance', 'sort_order', 'created_at'])
+        && d.name is string && d.name.size() > 0 && d.name.size() <= 60
+        && d.kind in ['asset', 'bank', 'debt']
+        && d.balance is number
+        && d.sort_order is number
+        && d.created_at is number;
+    }
+
+    match /expenses/{uid}/transactions/{id} {
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid) && validTxn(request.resource.data);
+    }
+
+    match /expenses/{uid}/accounts/{id} {
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid) && validAccount(request.resource.data);
+    }
+
+    // Everything else is closed.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
