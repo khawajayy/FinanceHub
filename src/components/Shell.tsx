@@ -1,9 +1,9 @@
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  LayoutGrid, Wallet, ReceiptText, Landmark, LineChart, Briefcase, Star, Newspaper, BookOpen, Target, Settings2,
+  LayoutGrid, Wallet, ReceiptText, Landmark, LineChart, Briefcase, Star, Newspaper, BookOpen, Target, Settings2, Zap, Gauge, CalendarClock, Plug,
   Sun, Moon, LogOut, RefreshCw, Cloud, CloudOff, Plus,
 } from "lucide-react";
-import { NavLink, useLocation, useOutlet } from "react-router-dom";
+import { NavLink, useLocation, useNavigate, useOutlet } from "react-router-dom";
 import { useAuth } from "@/stores/auth";
 import { useInvest } from "@/stores/invest";
 import { useUi } from "@/stores/ui";
@@ -54,6 +54,14 @@ const NAV: { group: string; items: { to: string; label: string; icon: ReactNode;
       { to: "/invest/settings", label: "Settings", icon: <Settings2 size={18} /> },
     ],
   },
+  {
+    group: "Electricity", items: [
+      { to: "/power", label: "Usage", icon: <Zap size={18} />, end: true },
+      { to: "/power/readings", label: "Readings", icon: <Gauge size={18} /> },
+      { to: "/power/cycles", label: "Billing cycles", icon: <CalendarClock size={18} /> },
+      { to: "/power/appliances", label: "Appliances", icon: <Plug size={18} /> },
+    ],
+  },
 ];
 
 function SideNav() {
@@ -95,6 +103,7 @@ const MOBILE = [
   { to: "/expenses", label: "Spend", icon: <Wallet size={20} />, match: (p: string) => p === "/expenses" },
   { to: "/expenses/transactions", label: "Txns", icon: <ReceiptText size={20} />, match: (p: string) => p.startsWith("/expenses/") },
   { to: "/invest", label: "Invest", icon: <LineChart size={20} />, match: (p: string) => p.startsWith("/invest") },
+  { to: "/power", label: "Power", icon: <Zap size={20} />, match: (p: string) => p.startsWith("/power") },
 ];
 
 function MobileNav() {
@@ -115,9 +124,9 @@ function MobileNav() {
   );
 }
 
-/** Sub-navigation for the investments section on small screens. */
-function InvestTabs() {
-  const items = NAV[2].items;
+/** Sub-navigation for a sidebar section on small screens. */
+function SectionTabs({ group }: { group: string }) {
+  const items = NAV.find((g) => g.group === group)!.items;
   return (
     <div className="-mx-4 mb-4 flex gap-1.5 overflow-x-auto px-4 pb-1 lg:hidden">
       {items.map((it) => (
@@ -141,6 +150,13 @@ function TopBar() {
   const toggleTheme = useUi((s) => s.toggleTheme);
   const { pathname } = useLocation();
   const inInvest = pathname.startsWith("/invest");
+  const inPower = pathname.startsWith("/power");
+  const navigate = useNavigate();
+  const primary = () => {
+    if (inInvest) openInvest();
+    else if (inPower) { navigate("/power"); setTimeout(() => document.getElementById("power-reading")?.focus(), 350); }
+    else openExpense();
+  };
   const cloud = useInvest((s) => s.cloudStatus);
   const priceStatus = useInvest((s) => s.priceStatus);
   const refreshingP = useInvest((s) => s.refreshing);
@@ -168,8 +184,8 @@ function TopBar() {
             <RefreshCw size={15} className={cx(refreshingP && "animate-spin")} /> <span className="hidden md:inline">{refreshingP ? "Updating…" : "Prices"}</span>
           </button>
         )}
-        <button className="btn btn-primary" onClick={() => (inInvest ? openInvest() : openExpense())}>
-          <Plus size={16} /> <span className="hidden sm:inline">{inInvest ? "Trade" : "Transaction"}</span>
+        <button className="btn btn-primary" onClick={primary}>
+          <Plus size={16} /> <span className="hidden sm:inline">{inInvest ? "Trade" : inPower ? "Reading" : "Transaction"}</span>
         </button>
         <button className="icon-btn !h-9 !w-9 glass" onClick={toggleTheme} aria-label="Toggle theme">
           <AnimatePresence mode="wait" initial={false}>
@@ -203,7 +219,8 @@ export function Shell() {
       <SideNav />
       <main className="min-w-0 flex-1 lg:pt-2">
         <TopBar />
-        {location.pathname.startsWith("/invest") && <InvestTabs />}
+        {location.pathname.startsWith("/invest") && <SectionTabs group="Investments" />}
+        {location.pathname.startsWith("/power") && <SectionTabs group="Electricity" />}
         <AnimatePresence mode="wait">
           <motion.div key={location.pathname}
             initial={{ opacity: 0, y: 10, filter: "blur(4px)" }} animate={{ opacity: 1, y: 0, filter: "blur(0px)" }} exit={{ opacity: 0, y: -6, filter: "blur(4px)" }}

@@ -54,6 +54,44 @@ service cloud.firestore {
       allow create, update: if isOwner(uid) && validAccount(request.resource.data);
     }
 
+    // ---------- Electricity ----------
+    function optNum(d, k) {
+      return !(k in d) || d[k] == null || d[k] is number;
+    }
+
+    match /power/{uid} {
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid)
+        && request.resource.data.keys().hasOnly(['rate', 'billDay', 'unit'])
+        && request.resource.data.rate is number && request.resource.data.rate >= 0
+        && request.resource.data.billDay is number && request.resource.data.billDay >= 1 && request.resource.data.billDay <= 31
+        && request.resource.data.unit in ['kWh', 'units'];
+    }
+
+    match /power/{uid}/readings/{id} {
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid)
+        && request.resource.data.keys().hasOnly(['v', 't'])
+        && request.resource.data.v is number && request.resource.data.t is number;
+    }
+
+    match /power/{uid}/appliances/{id} {
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid)
+        && request.resource.data.keys().hasOnly(['name', 'watts', 'qty', 'hours'])
+        && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 60
+        && request.resource.data.watts is number && request.resource.data.qty is number && request.resource.data.hours is number;
+    }
+
+    match /power/{uid}/cycles/{id} {
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid)
+        && request.resource.data.keys().hasOnly(['start', 'end', 'units', 'rate', 'est', 'actual', 'actualUnits', 'actualReading'])
+        && request.resource.data.start is string && request.resource.data.end is string
+        && request.resource.data.units is number && request.resource.data.rate is number && request.resource.data.est is number
+        && optNum(request.resource.data, 'actual') && optNum(request.resource.data, 'actualUnits') && optNum(request.resource.data, 'actualReading');
+    }
+
     // Everything else is closed.
     match /{document=**} {
       allow read, write: if false;

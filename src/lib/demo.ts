@@ -40,6 +40,33 @@ export function demoExpenses(): { txns: ExpenseTxn[]; accounts: Account[] } {
   };
 }
 
+export function demoPower() {
+  const D = 86400000, start = new Date(now.getFullYear(), now.getMonth() - 2, 1, 9).getTime();
+  const readings: { id: string; v: number; t: number }[] = [];
+  let v = 14520, k = 0;
+  for (let t = start; t <= Date.now(); t += D * (1 + (k % 3 === 0 ? 1 : 0))) {
+    readings.push({ id: `r${k++}`, v: Math.round(v * 10) / 10, t: t + (k % 4) * 1800000 });
+    const days = k % 3 === 1 ? 2 : 1;
+    v += days * (11 + 6 * Math.sin(k / 3) + (k % 5));
+  }
+  const first = new Date(start);
+  const c1s = new Date(first.getFullYear(), first.getMonth(), 1), c1e = new Date(first.getFullYear(), first.getMonth() + 1, 1);
+  const iso = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return {
+    settings: { rate: 52, billDay: 1, unit: "kWh" as const },
+    readings,
+    appliances: [
+      { id: "ap1", name: "Air Conditioner (1.5 ton)", watts: 1500, qty: 1, hours: 7 },
+      { id: "ap2", name: "Refrigerator", watts: 180, qty: 1, hours: 24 },
+      { id: "ap3", name: "Ceiling fan", watts: 75, qty: 4, hours: 10 },
+      { id: "ap4", name: "Water pump", watts: 750, qty: 1, hours: 1 },
+      { id: "ap5", name: "LED lights", watts: 12, qty: 10, hours: 6 },
+      { id: "ap6", name: "Gaming PC", watts: 450, qty: 1, hours: 3 },
+    ],
+    cycles: [{ id: "cy1", start: iso(c1s), end: iso(c1e), units: 452.6, rate: 52, est: 23535, actual: 24870, actualUnits: 461, actualReading: 14975 }],
+  };
+}
+
 export function demoLedger() {
   const D = 86400000, base = Date.now() - 120 * D;
   const iso = (d: number, h = 10) => new Date(base + d * D + h * 3600000).toISOString();

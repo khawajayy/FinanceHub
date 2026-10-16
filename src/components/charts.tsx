@@ -217,3 +217,83 @@ export function Sparkline({ values, className, positive }: { values: number[]; c
     </svg>
   );
 }
+
+/* ---------- daily bars (electricity) ---------- */
+export function DailyBars({ data, format, height = 220 }: { data: { day: string; used: number }[]; format: (n: number) => string; height?: number }) {
+  const [hi, setHi] = useState<number | null>(null);
+  const max = Math.max(1, ...data.map((d) => d.used));
+  const avg = data.length ? data.reduce((s, d) => s + d.used, 0) / data.length : 0;
+  const label = (k: string) => { const [y, m, d] = k.split("-").map(Number); return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: "short", day: "numeric" }); };
+  const step = Math.max(1, Math.ceil(data.length / 7));
+  return (
+    <div>
+      <div className="relative flex items-end gap-[3px]" style={{ height }} onMouseLeave={() => setHi(null)}>
+        <div className="pointer-events-none absolute inset-x-0 border-t border-dashed border-amber/50" style={{ bottom: `${(avg / max) * 100}%` }}>
+          <span className="num absolute -top-4 right-0 rounded bg-bg/70 px-1 text-[10px] text-amber">avg {format(avg)}</span>
+        </div>
+        {data.map((d, i) => (
+          <div key={d.day} className="relative flex h-full flex-1 items-end" onMouseEnter={() => setHi(i)}>
+            {hi === i && (
+              <div className={cx("glass-strong absolute bottom-full z-10 mb-2 whitespace-nowrap rounded-xl px-3 py-2 text-xs shadow-xl", i > data.length / 2 ? "right-0" : "left-0")}>
+                <div className="text-muted">{label(d.day)}</div><div className="num font-semibold">{format(d.used)}</div>
+              </div>
+            )}
+            <motion.div className={cx("w-full rounded-t-[4px]", d.used > avg * 1.3 ? "bg-gradient-to-t from-amber/40 to-amber" : "bg-gradient-to-t from-cyan/30 to-cyan", hi === i && "brightness-125")}
+              initial={{ height: 0 }} animate={{ height: `${(d.used / max) * 100}%` }} transition={{ duration: 0.7, delay: i * 0.012, ease: [0.22, 1, 0.36, 1] }}
+              style={{ boxShadow: hi === i ? "0 0 16px rgb(var(--cyan) / .6)" : undefined }} />
+          </div>
+        ))}
+      </div>
+      <div className="mt-2 flex gap-[3px]">
+        {data.map((d, i) => <div key={d.day} className="flex-1 overflow-visible whitespace-nowrap text-center text-[10px] text-muted">{i % step === 0 ? label(d.day) : ""}</div>)}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- simple time-series line (meter reading) ---------- */
+export function LineArea({ points, format, height = 220 }: { points: { t: number; v: number }[]; format: (n: number) => string; height?: number }) {
+  const W = 600, H = height, padT = 12, padB = 22;
+  const box = useRef<HTMLDivElement>(null);
+  const [hi, setHi] = useState<number | null>(null);
+  const tMin = points[0].t, tMax = points[points.length - 1].t;
+  const vMin = Math.min(...points.map((p) => p.v)), vMax = Math.max(...points.map((p) => p.v));
+  const X = (t: number) => (tMax === tMin ? W / 2 : ((t - tMin) / (tMax - tMin)) * W);
+  const Y = (v: number) => padT + (1 - (vMax === vMin ? 0.5 : (v - vMin) / (vMax - vMin))) * (H - padT - padB);
+  const pts = points.map((p) => ({ x: X(p.t), y: Y(p.v) }));
+  const line = smoothPath(pts);
+  const area = `${line} L${W},${H - padB} L0,${H - padB} Z`;
+  const move = (cx0: number) => {
+    const r = box.current?.getBoundingClientRect(); if (!r) return;
+    const x = ((cx0 - r.left) / r.width) * W;
+    let bi = 0; pts.forEach((p, i) => { if (Math.abs(p.x - x) < Math.abs(pts[bi].x - x)) bi = i; }); setHi(bi);
+  };
+  const hp = hi != null ? points[hi] : null;
+  const fd = (t: number) => new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return (
+    <div ref={box} className="relative touch-pan-y" style={{ height: H }} onMouseMove={(e) => move(e.clientX)} onMouseLeave={() => setHi(null)}
+      onTouchMove={(e) => e.touches[0] && move(e.touches[0].clientX)} onTouchEnd={() => setHi(null)}>
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="absolute inset-0 h-full w-full overflow-visible">
+        <defs><linearGradient id="laG" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="rgb(var(--violet))" stopOpacity=".35" /><stop offset="100%" stopColor="rgb(var(--violet))" stopOpacity="0" /></linearGradient>
+          <linearGradient id="laS" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor="rgb(var(--cyan))" /><stop offset="100%" stopColor="rgb(var(--violet))" /></linearGradient></defs>
+        <motion.path d={area} fill="url(#laG)" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3, duration: 0.8 }} />
+        <motion.path d={line} fill="none" stroke="url(#laS)" strokeWidth={2.5} vectorEffect="non-scaling-stroke" strokeLinecap="round"
+          initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1.2, ease: [0.22, 1, 0.36, 1] }} style={{ filter: "drop-shadow(0 0 6px rgb(var(--violet)))" }} />
+      </svg>
+      <div className="pointer-events-none absolute inset-0">
+        <span className="num absolute left-0 top-0 text-[10px] text-muted">{format(vMax)}</span>
+        <span className="num absolute left-0 text-[10px] text-muted" style={{ bottom: padB }}>{format(vMin)}</span>
+        <span className="absolute bottom-0 left-0 text-[10px] text-muted">{fd(tMin)}</span>
+        <span className="absolute bottom-0 right-0 text-[10px] text-muted">{fd(tMax)}</span>
+        {hp && <>
+          <div className="absolute w-px bg-violet/50" style={{ left: `${(pts[hi!].x / W) * 100}%`, top: padT, bottom: padB }} />
+          <div className="absolute h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-violet ring-4 ring-bg" style={{ left: `${(pts[hi!].x / W) * 100}%`, top: pts[hi!].y }} />
+          <div className={cx("glass-strong absolute top-1 z-10 rounded-xl px-3 py-2 text-xs shadow-xl", pts[hi!].x > W * 0.6 && "-translate-x-full")} style={{ left: `calc(${(pts[hi!].x / W) * 100}% ${pts[hi!].x > W * 0.6 ? "- 12px" : "+ 12px"})` }}>
+            <div className="text-muted">{new Date(hp.t).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</div>
+            <div className="num font-semibold">{format(hp.v)}</div>
+          </div>
+        </>}
+      </div>
+    </div>
+  );
+}

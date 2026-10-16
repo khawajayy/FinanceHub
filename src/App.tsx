@@ -6,6 +6,7 @@ import { DialogHost, Toaster } from "@/components/ui";
 import { useAuth } from "@/stores/auth";
 import { useExpenses } from "@/stores/expenses";
 import { useInvest } from "@/stores/invest";
+import { usePower } from "@/stores/power";
 import Login from "@/pages/Login";
 import Hub from "@/pages/Hub";
 import ExpenseOverview from "@/modules/expenses/Overview";
@@ -21,6 +22,10 @@ import Ledger from "@/modules/invest/Ledger";
 import Goals from "@/modules/invest/Goals";
 import InvestSettings from "@/modules/invest/Settings";
 import { InvestTxnModal } from "@/modules/invest/TxnModal";
+import PowerDashboard from "@/modules/power/Dashboard";
+import PowerReadings from "@/modules/power/Readings";
+import PowerCycles from "@/modules/power/Cycles";
+import PowerAppliances from "@/modules/power/Appliances";
 
 function Boot() {
   return (
@@ -36,8 +41,8 @@ export default function App() {
 
   // Start / stop the Firestore subscriptions with the signed-in user.
   useEffect(() => {
-    if (user) { useExpenses.getState().start(user.uid); useInvest.getState().start(user.uid); }
-    else { useExpenses.getState().stop(); useInvest.getState().stop(); }
+    if (user) { useExpenses.getState().start(user.uid); useInvest.getState().start(user.uid); usePower.getState().start(user.uid); }
+    else { useExpenses.getState().stop(); useInvest.getState().stop(); usePower.getState().stop(); }
   }, [user]);
 
   return (
@@ -58,6 +63,10 @@ export default function App() {
               <Route path="invest/ledger" element={<Ledger />} />
               <Route path="invest/goals" element={<Goals />} />
               <Route path="invest/settings" element={<InvestSettings />} />
+              <Route path="power" element={<PowerDashboard />} />
+              <Route path="power/readings" element={<PowerReadings />} />
+              <Route path="power/cycles" element={<PowerCycles />} />
+              <Route path="power/appliances" element={<PowerAppliances />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Route>
           </Routes>

@@ -11,6 +11,7 @@ import { useActions } from "@/stores/actions";
 import { useExpenses } from "@/stores/expenses";
 import { pkrRate, useInvest, valuationCtx } from "@/stores/invest";
 import { Arrow, AssetBadge, usePortfolio } from "@/modules/invest/common";
+import { PowerHubCard } from "@/modules/power/HubCard";
 
 export default function Hub() {
   const eLoaded = useExpenses((s) => s.loaded);
@@ -152,6 +153,8 @@ export default function Hub() {
           )}
         </Card>
       </div>
+
+      <PowerHubCard delay={0.23} />
 
       <Card delay={0.26}>
         <CardHeader title="Recent activity" sub="Across expenses and investments" icon={<Activity size={16} />} />
