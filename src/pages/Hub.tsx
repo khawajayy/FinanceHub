@@ -14,6 +14,7 @@ import { Arrow, AssetBadge, usePortfolio } from "@/modules/invest/common";
 import { PowerHubCard } from "@/modules/power/HubCard";
 import { TasksHubCard } from "@/modules/tasks/HubCard";
 import { GoalsHubCard } from "@/modules/goals/HubCard";
+import { DailyLesson } from "@/modules/lessons/DailyLesson";
 
 export default function Hub() {
   const eLoaded = useExpenses((s) => s.loaded);
@@ -94,6 +95,8 @@ export default function Hub() {
           </div>
         </div>
       </Card>
+
+      <DailyLesson />
 
       <div className="grid gap-4 xl:grid-cols-[1.7fr_1fr]">
         <TasksHubCard delay={0.05} />
