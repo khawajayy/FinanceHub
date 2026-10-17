@@ -168,13 +168,15 @@ export function Toaster() {
     <div className="pointer-events-none fixed inset-x-0 bottom-24 z-[60] flex flex-col items-center gap-2 px-4 md:bottom-6" role="status" aria-live="polite">
       <AnimatePresence>
         {toasts.map((t) => (
-          <motion.button key={t.id} layout onClick={() => dismiss(t.id)}
+          <motion.div key={t.id} layout role="button" tabIndex={0} onClick={() => dismiss(t.id)}
             initial={{ opacity: 0, y: 20, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10, scale: 0.95 }}
             className={cx("glass-strong pointer-events-auto flex max-w-md items-center gap-2.5 rounded-2xl px-4 py-3 text-sm font-medium shadow-xl",
               t.error ? "ring-1 ring-neg/40" : "ring-1 ring-cyan/30")}>
             {t.error ? <AlertTriangle size={16} className="shrink-0 text-neg" /> : <CheckCircle2 size={16} className="shrink-0 text-pos" />}
             <span className="text-left">{t.msg}</span>
-          </motion.button>
+            {t.action && <button className="ml-2 rounded-lg bg-cyan/15 px-2.5 py-1 text-xs font-bold text-cyan hover:bg-cyan/25"
+              onClick={(e) => { e.stopPropagation(); t.action!.onClick(); dismiss(t.id); }}>{t.action.label}</button>}
+          </motion.div>
         ))}
       </AnimatePresence>
     </div>

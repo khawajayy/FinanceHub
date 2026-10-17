@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
-export interface Toast { id: number; msg: string; error?: boolean }
+export interface ToastAction { label: string; onClick: () => void }
+export interface Toast { id: number; msg: string; error?: boolean; action?: ToastAction }
 interface DialogReq {
   title: string;
   message?: string;
@@ -14,7 +15,7 @@ interface UiState {
   toasts: Toast[];
   dialog: DialogReq | null;
   theme: "dark" | "light";
-  toast: (msg: string, error?: boolean) => void;
+  toast: (msg: string, error?: boolean, action?: ToastAction) => void;
   dismiss: (id: number) => void;
   setDialog: (d: DialogReq | null) => void;
   toggleTheme: () => void;
@@ -27,10 +28,10 @@ export const useUi = create<UiState>((set, get) => ({
   toasts: [],
   dialog: null,
   theme: initialTheme,
-  toast: (msg, error) => {
+  toast: (msg, error, action) => {
     const id = ++seq;
-    set({ toasts: [...get().toasts.slice(-3), { id, msg, error }] });
-    setTimeout(() => get().dismiss(id), 3200);
+    set({ toasts: [...get().toasts.slice(-3), { id, msg, error, action }] });
+    setTimeout(() => get().dismiss(id), action ? 5500 : 3200);
   },
   dismiss: (id) => set({ toasts: get().toasts.filter((t) => t.id !== id) }),
   setDialog: (dialog) => set({ dialog }),
@@ -42,7 +43,7 @@ export const useUi = create<UiState>((set, get) => ({
   },
 }));
 
-export const toast = (msg: string, error = false) => useUi.getState().toast(msg, error);
+export const toast = (msg: string, error = false, action?: ToastAction) => useUi.getState().toast(msg, error, action);
 
 export function confirmDialog(title: string, message: string, opts: { confirmText?: string; danger?: boolean } = {}) {
   return new Promise<boolean>((resolve) =>

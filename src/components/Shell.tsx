@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  LayoutGrid, Wallet, ReceiptText, Landmark, LineChart, Briefcase, Star, Newspaper, BookOpen, Target, Settings2, Zap, Gauge, CalendarClock, Plug,
+  LayoutGrid, Wallet, ReceiptText, Landmark, LineChart, Briefcase, Star, Newspaper, BookOpen, Target, Settings2, Zap, Gauge, CalendarClock, Plug, ListTodo,
   Sun, Moon, LogOut, RefreshCw, Cloud, CloudOff, Plus,
 } from "lucide-react";
 import { NavLink, useLocation, useNavigate, useOutlet } from "react-router-dom";
@@ -8,6 +8,7 @@ import { useAuth } from "@/stores/auth";
 import { useInvest } from "@/stores/invest";
 import { useUi } from "@/stores/ui";
 import { useActions } from "@/stores/actions";
+import { useTasks } from "@/stores/tasks";
 import { cx } from "@/lib/format";
 import { useEffect, useId, type ReactNode } from "react";
 
@@ -35,7 +36,7 @@ export function Logo({ size = 34 }: { size?: number }) {
 }
 
 const NAV: { group: string; items: { to: string; label: string; icon: ReactNode; end?: boolean }[] }[] = [
-  { group: "Overview", items: [{ to: "/", label: "Hub", icon: <LayoutGrid size={18} />, end: true }] },
+  { group: "Overview", items: [{ to: "/", label: "Hub", icon: <LayoutGrid size={18} />, end: true }, { to: "/tasks", label: "Tasks", icon: <ListTodo size={18} /> }] },
   {
     group: "Expenses", items: [
       { to: "/expenses", label: "Spending", icon: <Wallet size={18} />, end: true },
@@ -64,14 +65,23 @@ const NAV: { group: string; items: { to: string; label: string; icon: ReactNode;
   },
 ];
 
+/** Number of open tasks due today or overdue (sidebar badge). */
+function useTasksDue() {
+  return useTasks((s) => {
+    const d = new Date(), today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    return s.tasks.filter((t) => !t.done && t.due && t.due <= today).length;
+  });
+}
+
 function SideNav() {
+  const due = useTasksDue();
   return (
     <aside className="glass sticky top-4 hidden h-[calc(100vh-2rem)] w-60 shrink-0 flex-col rounded-3xl p-4 lg:flex">
       <div className="mb-6 flex items-center gap-3 px-2 pt-1">
         <Logo />
         <div>
           <div className="font-display text-lg font-bold leading-none tracking-tight">Nexus</div>
-          <div className="mt-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-muted">Finance OS</div>
+          <div className="mt-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-muted">Personal OS</div>
         </div>
       </div>
       <nav className="flex-1 space-y-5 overflow-y-auto">
@@ -87,6 +97,9 @@ function SideNav() {
                     {isActive && <motion.span layoutId="nav-bar" className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-full bg-cyan shadow-[0_0_12px_rgb(var(--cyan))]" />}
                     <span className={cx("relative transition-transform group-hover:scale-110", isActive && "text-cyan")}>{it.icon}</span>
                     <span className="relative">{it.label}</span>
+                    {it.to === "/tasks" && due > 0 && (
+                      <motion.span key={due} initial={{ scale: 0.6 }} animate={{ scale: 1 }} className="num relative ml-auto rounded-full bg-gradient-to-r from-cyan to-violet px-1.5 text-[10px] font-bold leading-[18px] text-bg">{due}</motion.span>
+                    )}
                   </>}
                 </NavLink>
               ))}
@@ -100,8 +113,8 @@ function SideNav() {
 
 const MOBILE = [
   { to: "/", label: "Hub", icon: <LayoutGrid size={20} />, match: (p: string) => p === "/" },
-  { to: "/expenses", label: "Spend", icon: <Wallet size={20} />, match: (p: string) => p === "/expenses" },
-  { to: "/expenses/transactions", label: "Txns", icon: <ReceiptText size={20} />, match: (p: string) => p.startsWith("/expenses/") },
+  { to: "/tasks", label: "Tasks", icon: <ListTodo size={20} />, match: (p: string) => p.startsWith("/tasks") },
+  { to: "/expenses", label: "Spend", icon: <Wallet size={20} />, match: (p: string) => p.startsWith("/expenses") },
   { to: "/invest", label: "Invest", icon: <LineChart size={20} />, match: (p: string) => p.startsWith("/invest") },
   { to: "/power", label: "Power", icon: <Zap size={20} />, match: (p: string) => p.startsWith("/power") },
 ];
@@ -151,9 +164,11 @@ function TopBar() {
   const { pathname } = useLocation();
   const inInvest = pathname.startsWith("/invest");
   const inPower = pathname.startsWith("/power");
+  const inTasks = pathname.startsWith("/tasks");
   const navigate = useNavigate();
   const primary = () => {
     if (inInvest) openInvest();
+    else if (inTasks) document.getElementById("task-quick-add")?.focus();
     else if (inPower) { navigate("/power"); setTimeout(() => document.getElementById("power-reading")?.focus(), 350); }
     else openExpense();
   };
@@ -185,7 +200,7 @@ function TopBar() {
           </button>
         )}
         <button className="btn btn-primary" onClick={primary}>
-          <Plus size={16} /> <span className="hidden sm:inline">{inInvest ? "Trade" : inPower ? "Reading" : "Transaction"}</span>
+          <Plus size={16} /> <span className="hidden sm:inline">{inInvest ? "Trade" : inPower ? "Reading" : inTasks ? "Task" : "Transaction"}</span>
         </button>
         <button className="icon-btn !h-9 !w-9 glass" onClick={toggleTheme} aria-label="Toggle theme">
           <AnimatePresence mode="wait" initial={false}>
@@ -221,6 +236,7 @@ export function Shell() {
         <TopBar />
         {location.pathname.startsWith("/invest") && <SectionTabs group="Investments" />}
         {location.pathname.startsWith("/power") && <SectionTabs group="Electricity" />}
+        {location.pathname.startsWith("/expenses") && <SectionTabs group="Expenses" />}
         <AnimatePresence mode="wait">
           <motion.div key={location.pathname}
             initial={{ opacity: 0, y: 10, filter: "blur(4px)" }} animate={{ opacity: 1, y: 0, filter: "blur(0px)" }} exit={{ opacity: 0, y: -6, filter: "blur(4px)" }}

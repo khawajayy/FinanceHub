@@ -40,6 +40,34 @@ export function demoExpenses(): { txns: ExpenseTxn[]; accounts: Account[] } {
   };
 }
 
+export function demoTasks() {
+  const d = (n: number) => { const x = new Date(now.getFullYear(), now.getMonth(), now.getDate() + n); return `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`; };
+  const at = (n: number, h = 11) => new Date(now.getFullYear(), now.getMonth(), now.getDate() + n, h).getTime();
+  let i = 0;
+  const t = (title: string, o: Record<string, unknown> = {}) => ({
+    id: `k${++i}`, title, notes: "", done: false, priority: "med", due: null, list: null, subtasks: [], createdAt: i, completedAt: null, ...o,
+  });
+  return [
+    t("Pay electricity bill", { due: d(-1), priority: "high", list: "home" }),
+    t("Review portfolio & rebalance SOL", { due: d(0), priority: "high", list: "finance", notes: "Trim if SOL > 25% of holdings." }),
+    t("Log meter reading", { due: d(0), list: "home" }),
+    t("Padel with Ali — 7pm", { due: d(0), priority: "low", list: "health" }),
+    t("Prepare Q4 planning doc", { due: d(1), priority: "high", list: "work", subtasks: [{ id: "s1", title: "Collect metrics", done: true }, { id: "s2", title: "Draft roadmap", done: false }, { id: "s3", title: "Share with team", done: false }] }),
+    t("Car service — Passo", { due: d(3), list: "home" }),
+    t("Renew Netflix / audit subscriptions", { due: d(5), priority: "low", list: "finance" }),
+    t("Book flights for December", { due: d(16), list: "travel" }),
+    t("Read 'The Psychology of Money'", { priority: "low", list: "personal" }),
+    t("Learn Rust basics", { list: "personal" }),
+    t("Submit PF claim form", { done: true, completedAt: at(0, 9), list: "finance" }),
+    t("Grocery run", { done: true, completedAt: at(-1), list: "home" }),
+    t("Call mama", { done: true, completedAt: at(-1, 20), list: "personal" }),
+    t("Fix bike puncture", { done: true, completedAt: at(-2), list: "home" }),
+    t("Send invoice to client", { done: true, completedAt: at(-3), priority: "high", list: "work" }),
+    t("Dentist appointment", { done: true, completedAt: at(-3, 16), list: "health" }),
+    t("Update CV", { done: true, completedAt: at(-5), list: "work" }),
+  ] as import("@/engine/task-engine").Task[];
+}
+
 export function demoPower() {
   const D = 86400000, start = new Date(now.getFullYear(), now.getMonth() - 2, 1, 9).getTime();
   const readings: { id: string; v: number; t: number }[] = [];

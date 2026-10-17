@@ -7,6 +7,8 @@ import { useAuth } from "@/stores/auth";
 import { useExpenses } from "@/stores/expenses";
 import { useInvest } from "@/stores/invest";
 import { usePower } from "@/stores/power";
+import { useTasks } from "@/stores/tasks";
+import Tasks from "@/modules/tasks/Tasks";
 import Login from "@/pages/Login";
 import Hub from "@/pages/Hub";
 import ExpenseOverview from "@/modules/expenses/Overview";
@@ -41,8 +43,8 @@ export default function App() {
 
   // Start / stop the Firestore subscriptions with the signed-in user.
   useEffect(() => {
-    if (user) { useExpenses.getState().start(user.uid); useInvest.getState().start(user.uid); usePower.getState().start(user.uid); }
-    else { useExpenses.getState().stop(); useInvest.getState().stop(); usePower.getState().stop(); }
+    if (user) { useExpenses.getState().start(user.uid); useInvest.getState().start(user.uid); usePower.getState().start(user.uid); useTasks.getState().start(user.uid); }
+    else { useExpenses.getState().stop(); useInvest.getState().stop(); usePower.getState().stop(); useTasks.getState().stop(); }
   }, [user]);
 
   return (
@@ -53,6 +55,7 @@ export default function App() {
           <Routes>
             <Route element={<Shell />}>
               <Route index element={<Hub />} />
+              <Route path="tasks" element={<Tasks />} />
               <Route path="expenses" element={<ExpenseOverview />} />
               <Route path="expenses/transactions" element={<ExpenseTransactions />} />
               <Route path="expenses/networth" element={<NetWorth />} />

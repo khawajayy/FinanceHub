@@ -1,12 +1,14 @@
 import { motion } from "framer-motion";
-import { LineChart, ShieldCheck, Wallet, Zap } from "lucide-react";
+import { ListTodo, LineChart, ShieldCheck, Wallet, Zap } from "lucide-react";
 import { useState } from "react";
 import { Logo } from "@/components/Shell";
 import { useAuth } from "@/stores/auth";
 
 const FEATURES = [
+  { icon: <ListTodo size={16} />, t: "Tasks & daily focus", s: "Natural-language to-dos, lists, subtasks, streaks" },
   { icon: <Wallet size={16} />, t: "Expenses & net worth", s: "Monthly cash flow, categories, debts, PF projections" },
   { icon: <LineChart size={16} />, t: "Crypto & stock ledger", s: "Live prices, P&L vs capital, trade analytics, goals" },
+  { icon: <Zap size={16} />, t: "Electricity usage", s: "Meter readings, cycle projections, appliance estimates" },
   { icon: <ShieldCheck size={16} />, t: "Private by design", s: "Your Google account only — synced across devices" },
 ];
 
@@ -21,11 +23,11 @@ export default function Login() {
           <Logo size={44} />
           <div>
             <div className="font-display text-2xl font-bold tracking-tight">Nexus</div>
-            <div className="text-[10px] font-semibold uppercase tracking-[0.25em] text-muted">Personal Finance OS</div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.25em] text-muted">Personal OS</div>
           </div>
         </div>
         <h1 className="mt-8 font-display text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">
-          Every rupee and every <span className="gradient-text">trade</span>, in one place.
+          Your money, tasks and <span className="gradient-text">life</span>, in one place.
         </h1>
         <div className="mt-7 space-y-3">
           {FEATURES.map((f, i) => (
