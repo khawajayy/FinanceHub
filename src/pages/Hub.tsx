@@ -13,6 +13,7 @@ import { pkrRate, useInvest, valuationCtx } from "@/stores/invest";
 import { Arrow, AssetBadge, usePortfolio } from "@/modules/invest/common";
 import { PowerHubCard } from "@/modules/power/HubCard";
 import { TasksHubCard } from "@/modules/tasks/HubCard";
+import { GoalsHubCard } from "@/modules/goals/HubCard";
 
 export default function Hub() {
   const eLoaded = useExpenses((s) => s.loaded);
@@ -94,7 +95,10 @@ export default function Hub() {
         </div>
       </Card>
 
-      <TasksHubCard delay={0.05} />
+      <div className="grid gap-4 xl:grid-cols-[1.7fr_1fr]">
+        <TasksHubCard delay={0.05} />
+        <GoalsHubCard delay={0.1} />
+      </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
         <Card delay={0.08}>

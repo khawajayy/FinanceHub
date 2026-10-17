@@ -5,6 +5,8 @@ import { Segmented } from "@/components/ui";
 import { dueLabel, iso, parseQuickAdd, type Priority, type Task } from "@/engine/task-engine";
 import { cx } from "@/lib/format";
 import { useTasks } from "@/stores/tasks";
+import { useGoals } from "@/stores/goals";
+import { areaInfo } from "@/engine/goal-engine";
 import { toast } from "@/stores/ui";
 
 export const PRI_STYLE: Record<Priority, { dot: string; text: string; label: string }> = {
@@ -59,7 +61,7 @@ export function CheckOrb({ done, onToggle, size = 22, label }: { done: boolean; 
 }
 
 /** Quick add with live natural-language parsing preview. */
-export function QuickAdd({ autoFocus, compact, defaults, id }: { autoFocus?: boolean; compact?: boolean; defaults?: { due?: string | null; list?: string | null }; id?: string }) {
+export function QuickAdd({ autoFocus, compact, defaults, id, placeholder }: { autoFocus?: boolean; compact?: boolean; defaults?: { due?: string | null; list?: string | null; goalId?: string | null }; id?: string; placeholder?: string }) {
   const add = useTasks((s) => s.add);
   const [text, setText] = useState("");
   const [focus, setFocus] = useState(false);
@@ -67,7 +69,7 @@ export function QuickAdd({ autoFocus, compact, defaults, id }: { autoFocus?: boo
   const today = iso(new Date());
   const submit = () => {
     if (!p.title.trim()) { if (text.trim()) toast("Give the task a name too", true); return; }
-    add({ title: p.title, due: p.due ?? defaults?.due ?? null, priority: p.priority, list: p.list ?? defaults?.list ?? null });
+    add({ title: p.title, due: p.due ?? defaults?.due ?? null, priority: p.priority, list: p.list ?? defaults?.list ?? null, goalId: defaults?.goalId ?? null });
     setText("");
   };
   const hasTokens = p.due || p.list || p.priority !== "med";
@@ -77,7 +79,7 @@ export function QuickAdd({ autoFocus, compact, defaults, id }: { autoFocus?: boo
         <Sparkles size={16} className={cx("shrink-0 transition", focus ? "text-cyan" : "text-muted")} />
         <input id={id} autoFocus={autoFocus} value={text} onChange={(e) => setText(e.target.value)} onFocus={() => setFocus(true)} onBlur={() => setFocus(false)}
           onKeyDown={(e: KeyboardEvent) => { if (e.key === "Enter") { e.preventDefault(); submit(); } if (e.key === "Escape") setText(""); }}
-          placeholder={compact ? "Add a task…" : "Add a task — try “Pay rent tomorrow !high #finance”"} aria-label="New task"
+          placeholder={placeholder ?? (compact ? "Add a task…" : "Add a task — try “Pay rent tomorrow !high #finance”")} aria-label="New task"
           className={cx("min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted/70", compact ? "py-2.5 text-sm" : "py-3.5 text-[15px]")} />
         <button type="button" onClick={submit} disabled={!p.title.trim()} className="btn btn-primary btn-sm !px-2.5" aria-label="Add task">
           {compact ? <Plus size={14} /> : <><CornerDownLeft size={13} /> Add</>}
@@ -134,6 +136,7 @@ function Editor({ t }: { t: Task }) {
           <label className="flex items-center gap-1 text-xs text-muted"><Hash size={13} />
             <input className="input !w-28 !py-1.5 !text-xs" placeholder="list" value={list} onChange={(e) => setList(e.target.value)} onBlur={saveText} aria-label="List" />
           </label>
+          <GoalPicker value={t.goalId ?? null} onChange={(goalId) => update(t.id, { goalId })} />
         </div>
         <div className="space-y-1.5">
           {t.subtasks.map((s) => (
@@ -151,6 +154,27 @@ function Editor({ t }: { t: Task }) {
         </div>
       </div>
     </motion.div>
+  );
+}
+
+/** Small chip showing the goal a task moves forward. */
+function GoalChip({ id }: { id: string }) {
+  const g = useGoals((s) => s.goals.find((x) => x.id === id));
+  if (!g) return null;
+  const a = areaInfo(g.area);
+  return <span className="inline-flex max-w-[160px] items-center gap-1 truncate rounded-full px-2 py-0.5 text-[10.5px] font-semibold" style={{ color: a.color, background: `${a.color}1a` }}>🎯 <span className="truncate">{g.title}</span></span>;
+}
+
+function GoalPicker({ value, onChange }: { value: string | null; onChange: (id: string | null) => void }) {
+  const goals = useGoals((s) => s.goals).filter((g) => g.status === "active" || g.id === value);
+  if (!goals.length) return null;
+  return (
+    <label className="flex items-center gap-1 text-xs text-muted">🎯
+      <select className="input !w-44 !py-1.5 !text-xs" value={value || ""} onChange={(e) => onChange(e.target.value || null)} aria-label="Goal">
+        <option value="">No goal</option>
+        {goals.map((g) => <option key={g.id} value={g.id}>{areaInfo(g.area).emoji} {g.title}</option>)}
+      </select>
+    </label>
   );
 }
 
@@ -176,6 +200,7 @@ export function TaskRow({ t, expanded, onExpand, compact }: { t: Task; expanded?
             <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
               {t.due && !t.done && <span className={cx("inline-flex items-center gap-1 font-semibold", overdue ? "neg" : t.due === today ? "text-amber" : "text-muted")}><CalendarDays size={11} />{dueLabel(t.due, today)}</span>}
               {t.list && <ListTag name={t.list} />}
+              {t.goalId && <GoalChip id={t.goalId} />}
               {t.subtasks.length > 0 && <span className="inline-flex items-center gap-1 text-muted"><ListChecks size={11} />{subDone}/{t.subtasks.length}</span>}
               {t.notes && !compact && <span className="max-w-[240px] truncate text-muted">· {t.notes}</span>}
             </div>

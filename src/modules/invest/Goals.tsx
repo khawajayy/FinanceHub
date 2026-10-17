@@ -243,7 +243,7 @@ export default function Goals() {
   const [editing, setEditing] = useState<Goal | "new" | null>(null);
   return (
     <>
-      <PageTitle title="Goals" sub={`Progress toward target portfolio values · equity ${fmtUSD(p.equity)}`}
+      <PageTitle title="Portfolio targets" sub={`Progress toward target portfolio values · equity ${fmtUSD(p.equity)}`}
         right={!editing && <button className="btn btn-primary" onClick={() => setEditing("new")}><Plus size={15} /> Add goal</button>} />
       <AnimatePresence>{editing && <GoalForm key={editing === "new" ? "new" : editing.id} editing={editing} equity={p.equity} onDone={() => setEditing(null)} />}</AnimatePresence>
       {!goals.length && !editing ? (

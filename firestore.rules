@@ -94,7 +94,7 @@ service cloud.firestore {
 
     // ---------- Tasks ----------
     function validTask(d) {
-      return d.keys().hasOnly(['title', 'notes', 'done', 'priority', 'due', 'list', 'subtasks', 'createdAt', 'completedAt'])
+      return d.keys().hasOnly(['title', 'notes', 'done', 'priority', 'due', 'list', 'subtasks', 'createdAt', 'completedAt', 'goalId'])
         && d.title is string && d.title.size() > 0 && d.title.size() <= 200
         && d.notes is string && d.notes.size() <= 2000
         && d.done is bool
@@ -103,12 +103,36 @@ service cloud.firestore {
         && (d.list == null || (d.list is string && d.list.size() <= 24))
         && d.subtasks is list && d.subtasks.size() <= 50
         && d.createdAt is number
-        && (d.completedAt == null || d.completedAt is number);
+        && (d.completedAt == null || d.completedAt is number)
+        && (!('goalId' in d) || d.goalId == null || (d.goalId is string && d.goalId.size() <= 64));
     }
 
     match /tasks/{uid}/items/{id} {
       allow read, delete: if isOwner(uid);
       allow create, update: if isOwner(uid) && validTask(request.resource.data);
+    }
+
+    // ---------- Goals ----------
+    function validGoal(d) {
+      return d.keys().hasOnly(['title', 'why', 'area', 'status', 'startDate', 'targetDate', 'metric', 'unit', 'start', 'target', 'current', 'log', 'milestones', 'createdAt', 'completedAt'])
+        && d.title is string && d.title.size() > 0 && d.title.size() <= 140
+        && d.why is string && d.why.size() <= 1000
+        && d.area in ['career', 'finance', 'health', 'learning', 'relationships', 'personal']
+        && d.status in ['active', 'paused', 'done', 'dropped']
+        && d.startDate is string && d.startDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && (d.targetDate == null || (d.targetDate is string && d.targetDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')))
+        && d.metric in ['checklist', 'number', 'networth', 'portfolio']
+        && d.unit is string && d.unit.size() <= 16
+        && d.start is number && d.target is number && d.current is number
+        && d.log is list && d.log.size() <= 400
+        && d.milestones is list && d.milestones.size() <= 100
+        && d.createdAt is number
+        && (d.completedAt == null || d.completedAt is number);
+    }
+
+    match /goals/{uid}/items/{id} {
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid) && validGoal(request.resource.data);
     }
 
     // Everything else is closed.
