@@ -4,7 +4,7 @@ One personal hub: tasks and long-term goals, plus an app that combines **[Expens
 
 | Area | What's inside |
 |---|---|
-| **Hub** | Today's focus (urgent tasks, quick add, progress ring, streak), active goals (at-risk first), total net worth in PKR (net-worth register + investments at the live USD/PKR rate, less money owed), this month's cash flow, portfolio snapshot, next goal, and recent activity across both modules |
+| **Hub** | Lesson of the day (an animated daily idea — patience, delayed gratification, focus… — with a public-domain quote, a modern take and one small practice you can mark done or add to today's tasks; changes at midnight, browse the past week), Today's focus (urgent tasks, quick add, progress ring, streak), active goals (at-risk first), total net worth in PKR (net-worth register + investments at the live USD/PKR rate, less money owed), this month's cash flow, portfolio snapshot, next goal, and recent activity across both modules |
 | **Tasks** | Natural-language quick add (`Pay rent tomorrow !high #finance` → due date, priority, list), Focus / Upcoming / All / Done views, smart buckets (overdue, today, tomorrow, next 7 days, later, someday), lists, subtasks, notes, undo, 7-day completion chart and streak; sidebar badge for tasks due |
 | **Goals** | Long-term goals across six life areas with a "why", target date and milestones; progress from milestones + linked tasks, a tracked number (e.g. km, kg, books, with a log chart), or live net worth / portfolio equity; pace vs. the target date (ahead / on track / at risk / overdue), weekly rate needed, life-wheel radar, pause / drop / achieve. Tasks can link to a goal |
 | **Expenses** | Monthly income/expenses/net, savings rate, category donut, 6-month flow chart, searchable transactions with CSV export, net worth (assets, banks, debts with Repay/Borrow), `Debt - Name` / `Debt paid - Name` auto-debts, Provident Fund calculator |
@@ -58,13 +58,14 @@ npm run build      # typecheck + production build into dist/
 
 ```
 src/
-  engine/        pure logic + tests target: ledger-engine.js, goal-calc.js, expense-engine.ts, power-engine.ts, task-engine.ts, goal-engine.ts
+  engine/        pure logic + tests target: ledger-engine.js, goal-calc.js, expense-engine.ts, power-engine.ts, task-engine.ts, goal-engine.ts, lessons.ts
   lib/           firebase init, market data (prices/FX/search/news), formatting, demo data
   stores/        zustand stores: auth, expenses (Firestore), invest (Firestore + local), ui, actions
   components/    Shell (nav/backdrop), ui kit (cards, modals, animated numbers), charts
   modules/
     expenses/    Spending overview, Transactions, Net Worth, transaction modal, PF calculator
     invest/      Portfolio, Holdings, Watchlist, News, Ledger, Goals, Settings, trade modal
+    lessons/     Daily lesson card for the Hub
     goals/       Goals page, goal create/detail modal, life wheel, Hub card
     tasks/       Tasks page, task row + inline editor, quick add, Hub card
     power/       Electricity usage dashboard, Readings, Billing cycles, Appliances, Hub card
