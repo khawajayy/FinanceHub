@@ -10,12 +10,15 @@ interface ActionsState {
   expenseModal: { open: boolean; editing: ExpenseTxn | null };
   investModal: { open: boolean; txn: Txn | null; prefill: InvestPrefill | null };
   pfOpen: boolean;
+  goalModal: { open: boolean; id: string | null }; // id null = new goal
   month: YearMonth;
   openExpense: (editing?: ExpenseTxn | null) => void;
   closeExpense: () => void;
   openInvest: (txn?: Txn | null, prefill?: InvestPrefill | null) => void;
   closeInvest: () => void;
   setPf: (open: boolean) => void;
+  openGoal: (id?: string | null) => void;
+  closeGoal: () => void;
   setMonth: (m: YearMonth) => void;
 }
 
@@ -23,11 +26,14 @@ export const useActions = create<ActionsState>((set) => ({
   expenseModal: { open: false, editing: null },
   investModal: { open: false, txn: null, prefill: null },
   pfOpen: false,
+  goalModal: { open: false, id: null },
   month: currentMonth(),
   openExpense: (editing = null) => set({ expenseModal: { open: true, editing } }),
   closeExpense: () => set((s) => ({ expenseModal: { ...s.expenseModal, open: false } })),
   openInvest: (txn = null, prefill = null) => set({ investModal: { open: true, txn, prefill } }),
   closeInvest: () => set((s) => ({ investModal: { ...s.investModal, open: false } })),
   setPf: (pfOpen) => set({ pfOpen }),
+  openGoal: (id = null) => set({ goalModal: { open: true, id } }),
+  closeGoal: () => set((s) => ({ goalModal: { ...s.goalModal, open: false } })),
   setMonth: (month) => set({ month }),
 }));

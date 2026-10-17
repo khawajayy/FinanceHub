@@ -8,6 +8,9 @@ import { useExpenses } from "@/stores/expenses";
 import { useInvest } from "@/stores/invest";
 import { usePower } from "@/stores/power";
 import { useTasks } from "@/stores/tasks";
+import { useGoals } from "@/stores/goals";
+import LifeGoals from "@/modules/goals/Goals";
+import { GoalModal } from "@/modules/goals/GoalModal";
 import Tasks from "@/modules/tasks/Tasks";
 import Login from "@/pages/Login";
 import Hub from "@/pages/Hub";
@@ -43,8 +46,8 @@ export default function App() {
 
   // Start / stop the Firestore subscriptions with the signed-in user.
   useEffect(() => {
-    if (user) { useExpenses.getState().start(user.uid); useInvest.getState().start(user.uid); usePower.getState().start(user.uid); useTasks.getState().start(user.uid); }
-    else { useExpenses.getState().stop(); useInvest.getState().stop(); usePower.getState().stop(); useTasks.getState().stop(); }
+    if (user) { useExpenses.getState().start(user.uid); useInvest.getState().start(user.uid); usePower.getState().start(user.uid); useTasks.getState().start(user.uid); useGoals.getState().start(user.uid); }
+    else { useExpenses.getState().stop(); useInvest.getState().stop(); usePower.getState().stop(); useTasks.getState().stop(); useGoals.getState().stop(); }
   }, [user]);
 
   return (
@@ -56,6 +59,7 @@ export default function App() {
             <Route element={<Shell />}>
               <Route index element={<Hub />} />
               <Route path="tasks" element={<Tasks />} />
+              <Route path="goals" element={<LifeGoals />} />
               <Route path="expenses" element={<ExpenseOverview />} />
               <Route path="expenses/transactions" element={<ExpenseTransactions />} />
               <Route path="expenses/networth" element={<NetWorth />} />
@@ -76,6 +80,7 @@ export default function App() {
           <ExpenseTxnModal />
           <InvestTxnModal />
           <PFCalculator />
+          <GoalModal />
         </HashRouter>
       )}
       <DialogHost />

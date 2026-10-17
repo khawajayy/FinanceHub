@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  LayoutGrid, Wallet, ReceiptText, Landmark, LineChart, Briefcase, Star, Newspaper, BookOpen, Target, Settings2, Zap, Gauge, CalendarClock, Plug, ListTodo,
+  LayoutGrid, Wallet, ReceiptText, Landmark, LineChart, Briefcase, Star, Newspaper, BookOpen, Target, Settings2, Zap, Gauge, CalendarClock, Plug, ListTodo, Mountain,
   Sun, Moon, LogOut, RefreshCw, Cloud, CloudOff, Plus,
 } from "lucide-react";
 import { NavLink, useLocation, useNavigate, useOutlet } from "react-router-dom";
@@ -36,7 +36,7 @@ export function Logo({ size = 34 }: { size?: number }) {
 }
 
 const NAV: { group: string; items: { to: string; label: string; icon: ReactNode; end?: boolean }[] }[] = [
-  { group: "Overview", items: [{ to: "/", label: "Hub", icon: <LayoutGrid size={18} />, end: true }, { to: "/tasks", label: "Tasks", icon: <ListTodo size={18} /> }] },
+  { group: "Overview", items: [{ to: "/", label: "Hub", icon: <LayoutGrid size={18} />, end: true }, { to: "/tasks", label: "Tasks", icon: <ListTodo size={18} /> }, { to: "/goals", label: "Goals", icon: <Mountain size={18} /> }] },
   {
     group: "Expenses", items: [
       { to: "/expenses", label: "Spending", icon: <Wallet size={18} />, end: true },
@@ -51,7 +51,7 @@ const NAV: { group: string; items: { to: string; label: string; icon: ReactNode;
       { to: "/invest/watchlist", label: "Watchlist", icon: <Star size={18} /> },
       { to: "/invest/news", label: "News", icon: <Newspaper size={18} /> },
       { to: "/invest/ledger", label: "Ledger", icon: <BookOpen size={18} /> },
-      { to: "/invest/goals", label: "Goals", icon: <Target size={18} /> },
+      { to: "/invest/goals", label: "Targets", icon: <Target size={18} /> },
       { to: "/invest/settings", label: "Settings", icon: <Settings2 size={18} /> },
     ],
   },
@@ -113,7 +113,7 @@ function SideNav() {
 
 const MOBILE = [
   { to: "/", label: "Hub", icon: <LayoutGrid size={20} />, match: (p: string) => p === "/" },
-  { to: "/tasks", label: "Tasks", icon: <ListTodo size={20} />, match: (p: string) => p.startsWith("/tasks") },
+  { to: "/tasks", label: "Tasks", icon: <ListTodo size={20} />, match: (p: string) => p.startsWith("/tasks") || p.startsWith("/goals") },
   { to: "/expenses", label: "Spend", icon: <Wallet size={20} />, match: (p: string) => p.startsWith("/expenses") },
   { to: "/invest", label: "Invest", icon: <LineChart size={20} />, match: (p: string) => p.startsWith("/invest") },
   { to: "/power", label: "Power", icon: <Zap size={20} />, match: (p: string) => p.startsWith("/power") },
@@ -165,10 +165,13 @@ function TopBar() {
   const inInvest = pathname.startsWith("/invest");
   const inPower = pathname.startsWith("/power");
   const inTasks = pathname.startsWith("/tasks");
+  const inGoals = pathname.startsWith("/goals");
+  const openGoal = useActions((s) => s.openGoal);
   const navigate = useNavigate();
   const primary = () => {
     if (inInvest) openInvest();
     else if (inTasks) document.getElementById("task-quick-add")?.focus();
+    else if (inGoals) openGoal(null);
     else if (inPower) { navigate("/power"); setTimeout(() => document.getElementById("power-reading")?.focus(), 350); }
     else openExpense();
   };
@@ -200,7 +203,7 @@ function TopBar() {
           </button>
         )}
         <button className="btn btn-primary" onClick={primary}>
-          <Plus size={16} /> <span className="hidden sm:inline">{inInvest ? "Trade" : inPower ? "Reading" : inTasks ? "Task" : "Transaction"}</span>
+          <Plus size={16} /> <span className="hidden sm:inline">{inInvest ? "Trade" : inPower ? "Reading" : inTasks ? "Task" : inGoals ? "Goal" : "Transaction"}</span>
         </button>
         <button className="icon-btn !h-9 !w-9 glass" onClick={toggleTheme} aria-label="Toggle theme">
           <AnimatePresence mode="wait" initial={false}>
@@ -237,6 +240,7 @@ export function Shell() {
         {location.pathname.startsWith("/invest") && <SectionTabs group="Investments" />}
         {location.pathname.startsWith("/power") && <SectionTabs group="Electricity" />}
         {location.pathname.startsWith("/expenses") && <SectionTabs group="Expenses" />}
+        {(location.pathname.startsWith("/tasks") || location.pathname.startsWith("/goals")) && <SectionTabs group="Overview" />}
         <AnimatePresence mode="wait">
           <motion.div key={location.pathname}
             initial={{ opacity: 0, y: 10, filter: "blur(4px)" }} animate={{ opacity: 1, y: 0, filter: "blur(0px)" }} exit={{ opacity: 0, y: -6, filter: "blur(4px)" }}

@@ -40,6 +40,33 @@ export function demoExpenses(): { txns: ExpenseTxn[]; accounts: Account[] } {
   };
 }
 
+export function demoGoals() {
+  const d = (months: number, days = 0) => { const x = new Date(now.getFullYear(), now.getMonth() + months, now.getDate() + days); return `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`; };
+  const ago = (days: number) => Date.now() - days * 86400000;
+  const base = { why: "", status: "active", unit: "", start: 0, target: 0, current: 0, log: [], milestones: [], completedAt: null };
+  const m = (id: string, title: string, done: boolean, due: string | null = null) => ({ id, title, done, due });
+  return [
+    { ...base, id: "gq4", title: "Ship the Q4 roadmap at work", area: "career", startDate: d(-1), targetDate: d(2, 10), metric: "checklist", createdAt: ago(30),
+      why: "Lead the planning end-to-end and earn the senior promotion case.",
+      milestones: [m("q1", "Collect metrics", true), m("q2", "Draft roadmap", false, d(0, 1)), m("q3", "Stakeholder review", false, d(0, 14)), m("q4", "Publish to org", false, d(1, 20))] },
+    { ...base, id: "gnw", title: "Reach Rs 10M net worth", area: "finance", startDate: d(-4), targetDate: d(14), metric: "networth", unit: "PKR", start: 5_200_000, target: 10_000_000, createdAt: ago(120),
+      why: "Financial cushion so career moves are a choice, not a necessity." },
+    { ...base, id: "gpf", title: "Portfolio to $10k", area: "finance", startDate: d(-4), targetDate: d(8), metric: "portfolio", unit: "USD", start: 5000, target: 10000, createdAt: ago(120) },
+    { ...base, id: "grun", title: "Run 500 km this year", area: "health", startDate: `${now.getFullYear()}-01-01`, targetDate: `${now.getFullYear()}-12-31`, metric: "number", unit: "km", start: 0, target: 500, current: 318, createdAt: ago(280),
+      log: [{ t: ago(280), v: 0 }, { t: ago(220), v: 70 }, { t: ago(160), v: 150 }, { t: ago(100), v: 220 }, { t: ago(40), v: 285 }, { t: ago(3), v: 318 }] },
+    { ...base, id: "gwt", title: "Get down to 75 kg", area: "health", startDate: d(-3), targetDate: d(3), metric: "number", unit: "kg", start: 86, target: 75, current: 83.2, createdAt: ago(90),
+      log: [{ t: ago(90), v: 86 }, { t: ago(60), v: 85.1 }, { t: ago(30), v: 84 }, { t: ago(2), v: 83.2 }] },
+    { ...base, id: "grust", title: "Learn Rust well enough to ship a CLI", area: "learning", startDate: d(-1), targetDate: d(3), metric: "checklist", createdAt: ago(35),
+      milestones: [m("r1", "Finish The Rust Book ch. 1–10", true), m("r2", "Rustlings exercises", false), m("r3", "Build a todo CLI", false), m("r4", "Publish crate", false)] },
+    { ...base, id: "gbooks", title: "Read 12 books", area: "learning", startDate: `${now.getFullYear()}-01-01`, targetDate: `${now.getFullYear()}-12-31`, metric: "number", unit: "books", start: 0, target: 12, current: 7, createdAt: ago(280),
+      log: [{ t: ago(280), v: 0 }, { t: ago(150), v: 4 }, { t: ago(20), v: 7 }] },
+    { ...base, id: "gfam", title: "Weekly call with parents", area: "relationships", startDate: d(-2), targetDate: null, metric: "checklist", createdAt: ago(60),
+      milestones: [m("f1", "Set a recurring Sunday slot", true), m("f2", "Plan December trip home", false)] },
+    { ...base, id: "gcv", title: "Update CV & portfolio site", area: "career", status: "done", startDate: d(-3), targetDate: d(-1), metric: "checklist", createdAt: ago(100), completedAt: ago(12),
+      milestones: [m("c1", "Rewrite CV", true), m("c2", "Refresh portfolio", true)] },
+  ] as import("@/engine/goal-engine").Goal[];
+}
+
 export function demoTasks() {
   const d = (n: number) => { const x = new Date(now.getFullYear(), now.getMonth(), now.getDate() + n); return `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`; };
   const at = (n: number, h = 11) => new Date(now.getFullYear(), now.getMonth(), now.getDate() + n, h).getTime();
@@ -52,12 +79,13 @@ export function demoTasks() {
     t("Review portfolio & rebalance SOL", { due: d(0), priority: "high", list: "finance", notes: "Trim if SOL > 25% of holdings." }),
     t("Log meter reading", { due: d(0), list: "home" }),
     t("Padel with Ali — 7pm", { due: d(0), priority: "low", list: "health" }),
-    t("Prepare Q4 planning doc", { due: d(1), priority: "high", list: "work", subtasks: [{ id: "s1", title: "Collect metrics", done: true }, { id: "s2", title: "Draft roadmap", done: false }, { id: "s3", title: "Share with team", done: false }] }),
+    t("Prepare Q4 planning doc", { due: d(1), priority: "high", list: "work", goalId: "gq4", subtasks: [{ id: "s1", title: "Collect metrics", done: true }, { id: "s2", title: "Draft roadmap", done: false }, { id: "s3", title: "Share with team", done: false }] }),
     t("Car service — Passo", { due: d(3), list: "home" }),
     t("Renew Netflix / audit subscriptions", { due: d(5), priority: "low", list: "finance" }),
     t("Book flights for December", { due: d(16), list: "travel" }),
     t("Read 'The Psychology of Money'", { priority: "low", list: "personal" }),
-    t("Learn Rust basics", { list: "personal" }),
+    t("Learn Rust basics", { list: "personal", goalId: "grust" }),
+    t("Rustlings: ownership exercises", { due: d(2), list: "learning", goalId: "grust" }),
     t("Submit PF claim form", { done: true, completedAt: at(0, 9), list: "finance" }),
     t("Grocery run", { done: true, completedAt: at(-1), list: "home" }),
     t("Call mama", { done: true, completedAt: at(-1, 20), list: "personal" }),

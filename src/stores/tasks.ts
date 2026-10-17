@@ -10,7 +10,7 @@ import { toast } from "./ui";
  * Owner-only (see firestore.rules). Changes apply locally first, then sync.
  */
 
-export type TaskInput = Pick<Task, "title" | "priority" | "due" | "list"> & Partial<Pick<Task, "notes" | "subtasks">>;
+export type TaskInput = Pick<Task, "title" | "priority" | "due" | "list"> & Partial<Pick<Task, "notes" | "subtasks" | "goalId">>;
 
 interface TaskState {
   uid: string | null;
@@ -42,6 +42,7 @@ function clean(id: string, x: Record<string, unknown>): Task {
     subtasks: Array.isArray(x.subtasks) ? (x.subtasks as Subtask[]).filter((s) => s && typeof s.title === "string").map((s) => ({ id: String(s.id), title: s.title, done: s.done === true })) : [],
     createdAt: Number(x.createdAt) || 0,
     completedAt: typeof x.completedAt === "number" ? x.completedAt : null,
+    goalId: typeof x.goalId === "string" && x.goalId ? x.goalId : null,
   };
 }
 
@@ -82,7 +83,7 @@ export const useTasks = create<TaskState>((set, get) => {
 
     add: (t) => {
       const id = newId();
-      commit([{ id, data: { id, title: t.title.trim().slice(0, 200), notes: (t.notes || "").slice(0, 2000), done: false, priority: t.priority, due: t.due, list: t.list, subtasks: t.subtasks || [], createdAt: Date.now(), completedAt: null } }]);
+      commit([{ id, data: { id, title: t.title.trim().slice(0, 200), notes: (t.notes || "").slice(0, 2000), done: false, priority: t.priority, due: t.due, list: t.list, subtasks: t.subtasks || [], createdAt: Date.now(), completedAt: null, goalId: t.goalId ?? null } }]);
       return id;
     },
 

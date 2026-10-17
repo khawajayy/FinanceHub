@@ -15,6 +15,7 @@ export interface Task {
   subtasks: Subtask[];
   createdAt: number;
   completedAt: number | null;
+  goalId?: string | null; // optional link to a long-term goal
 }
 
 const p2 = (n: number) => String(n).padStart(2, "0");
