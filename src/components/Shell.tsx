@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from "framer-motion";
 import {
   LayoutGrid, Wallet, ReceiptText, Landmark, LineChart, Briefcase, Star, Newspaper, BookOpen, Target, Settings2, Zap, Gauge, CalendarClock, Plug, ListTodo, Mountain,
-  Sun, Moon, LogOut, RefreshCw, Cloud, CloudOff, Plus,
+  Sun, Moon, LogOut, RefreshCw, Cloud, CloudOff, Plus, ShoppingBag, Settings,
 } from "lucide-react";
 import { NavLink, useLocation, useNavigate, useOutlet } from "react-router-dom";
 import { useAuth } from "@/stores/auth";
@@ -42,6 +42,7 @@ const NAV: { group: string; items: { to: string; label: string; icon: ReactNode;
       { to: "/expenses", label: "Spending", icon: <Wallet size={18} />, end: true },
       { to: "/expenses/transactions", label: "Transactions", icon: <ReceiptText size={18} /> },
       { to: "/expenses/networth", label: "Net Worth", icon: <Landmark size={18} /> },
+      { to: "/expenses/buckets", label: "Buckets", icon: <ShoppingBag size={18} /> },
     ],
   },
   {
@@ -213,13 +214,18 @@ function TopBar() {
           </AnimatePresence>
         </button>
         <div className="group relative">
-          {user?.photoURL
-            ? <img src={user.photoURL} alt="" referrerPolicy="no-referrer" className="h-9 w-9 rounded-xl ring-1 ring-line/15" />
-            : <div className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-cyan to-violet font-bold text-bg">{(user?.email || "?")[0].toUpperCase()}</div>}
+          {/* A button so a tap focuses it and opens the menu on touch screens. */}
+          <button className="block rounded-xl" aria-label="Account menu" aria-haspopup="menu">
+            {user?.photoURL
+              ? <img src={user.photoURL} alt="" referrerPolicy="no-referrer" className="h-9 w-9 rounded-xl ring-1 ring-line/15" />
+              : <div className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-cyan to-violet font-bold text-bg">{(user?.email || "?")[0].toUpperCase()}</div>}
+          </button>
           <div className="invisible absolute right-0 top-11 z-50 w-56 translate-y-1 opacity-0 transition group-focus-within:visible group-focus-within:translate-y-0 group-focus-within:opacity-100 group-hover:visible group-hover:translate-y-0 group-hover:opacity-100">
-            <div className="glass-strong rounded-2xl p-2 shadow-2xl">
+            <div className="glass-strong rounded-2xl p-2 shadow-2xl" role="menu">
               <div className="truncate px-3 py-2 text-xs text-muted">{user?.email}</div>
-              <button className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm hover:bg-line/10" onClick={signOut}><LogOut size={15} /> Sign out</button>
+              <button role="menuitem" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm hover:bg-line/10"
+                onClick={(e) => { (e.currentTarget as HTMLButtonElement).blur(); navigate("/settings"); }}><Settings size={15} /> Settings</button>
+              <button role="menuitem" className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm hover:bg-line/10" onClick={signOut}><LogOut size={15} /> Sign out</button>
             </div>
           </div>
         </div>

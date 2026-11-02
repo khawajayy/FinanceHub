@@ -1,21 +1,52 @@
 import { motion } from "framer-motion";
-import { ArrowDownRight, ArrowUpRight, PieChart, Scale, BarChart3, Landmark, Plus } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, PieChart, Scale, BarChart3, Landmark, Plus, ShoppingBag } from "lucide-react";
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Card, CardHeader, Empty, Stat, AnimatedNumber } from "@/components/ui";
 import { Donut, FlowBars } from "@/components/charts";
 import {
-  MONTH_NAMES, accountTotals, byCategory, categoryColor, categoryEmoji, inMonth, monthLabel, shiftMonth, totals,
+  MONTH_NAMES, accountTotals, bucketSummary, byCategory, categoryColor, categoryEmoji, inMonth, monthLabel, shiftMonth, totals,
 } from "@/engine/expense-engine";
 import { cx, fmtRs, fmtRsCompact } from "@/lib/format";
 import { useActions } from "@/stores/actions";
 import { useExpenses } from "@/stores/expenses";
 import { LoadingGrid, MonthNav, PageTitle, useMonthTxns } from "./common";
+import { BucketBar } from "./Buckets";
+
+/** Active buckets with all-time totals (buckets span months, so the month picker doesn't apply). */
+function BucketsCard() {
+  const all = useExpenses((s) => s.txns);
+  const buckets = useExpenses((s) => s.buckets).filter((b) => b.status === "active");
+  const openExpense = useActions((s) => s.openExpense);
+  if (!buckets.length) return null;
+  return (
+    <Card delay={0.18}>
+      <CardHeader title="Buckets" icon={<ShoppingBag size={16} />} sub="All-time, across months" right={<Link to="/expenses/buckets" className="btn btn-sm">Manage</Link>} />
+      <div className="grid gap-x-8 gap-y-4 p-5 md:grid-cols-2">
+        {buckets.map((b) => {
+          const s = bucketSummary(all, b.id);
+          return (
+            <div key={b.id} className="group">
+              <div className="mb-1.5 flex items-center gap-2 text-sm">
+                <span>{b.emoji}</span><span className="truncate font-medium">{b.name}</span>
+                <button className="icon-btn !h-6 !w-6 opacity-0 transition group-hover:opacity-100" title={`Add expense to ${b.name}`} onClick={() => openExpense(null, b.id)}><Plus size={13} /></button>
+                <span className="num ml-auto font-semibold">{fmtRs(s.net)}</span>
+                {b.budget != null && <span className="num text-xs text-muted">/ {fmtRsCompact(b.budget)}</span>}
+              </div>
+              <BucketBar spent={s.net} budget={b.budget} color={b.color} />
+            </div>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
 
 export default function ExpenseOverview() {
   const loaded = useExpenses((s) => s.loaded);
   const all = useExpenses((s) => s.txns);
   const accounts = useExpenses((s) => s.accounts);
+  const categories = useExpenses((s) => s.categories);
   const month = useActions((s) => s.month);
   const openExpense = useActions((s) => s.openExpense);
   const txns = useMonthTxns();
@@ -61,7 +92,7 @@ export default function ExpenseOverview() {
                   action={<button className="btn btn-primary" onClick={() => openExpense()}><Plus size={15} /> Add transaction</button>} />
               ) : (
                 <div className="flex flex-col items-center gap-6 p-5 md:flex-row">
-                  <Donut data={cats.map((c) => ({ key: c.category, value: c.amount, color: categoryColor(c.category) }))}
+                  <Donut data={cats.map((c) => ({ key: c.category, value: c.amount, color: categoryColor(c.category, categories) }))}
                     center={<div><div className="label !text-[9.5px]">Spent</div><div className="num mt-1 text-lg font-semibold">{fmtRsCompact(t.expenses)}</div></div>} />
                   <div className="w-full flex-1 space-y-3">
                     {cats.map((c, i) => {
@@ -69,13 +100,13 @@ export default function ExpenseOverview() {
                       return (
                         <motion.div key={c.category} initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.15 + i * 0.05 }}>
                           <div className="mb-1 flex items-center gap-2 text-sm">
-                            <span>{categoryEmoji(c.category)}</span>
+                            <span>{categoryEmoji(c.category, categories)}</span>
                             <span className="truncate">{c.category}</span>
                             <span className="num ml-auto font-semibold">{fmtRs(c.amount)}</span>
                             <span className="num w-10 text-right text-xs text-muted">{pct.toFixed(0)}%</span>
                           </div>
                           <div className="h-1.5 overflow-hidden rounded-full bg-line/[.07]">
-                            <motion.div className="h-full rounded-full" style={{ background: categoryColor(c.category), boxShadow: `0 0 10px ${categoryColor(c.category)}` }}
+                            <motion.div className="h-full rounded-full" style={{ background: categoryColor(c.category, categories), boxShadow: `0 0 10px ${categoryColor(c.category, categories)}` }}
                               initial={{ width: 0 }} animate={{ width: `${pct}%` }} transition={{ duration: 0.9, delay: 0.2 + i * 0.05, ease: [0.22, 1, 0.36, 1] }} />
                           </div>
                         </motion.div>
@@ -93,6 +124,8 @@ export default function ExpenseOverview() {
             </Card>
           </div>
 
+          <BucketsCard />
+
           <div className="grid gap-4 lg:grid-cols-2">
             <Card delay={0.2}>
               <CardHeader title="Biggest expenses" icon={<ArrowDownRight size={16} />} right={<Link to="/expenses/transactions" className="btn btn-sm">View all</Link>} />
@@ -100,7 +133,7 @@ export default function ExpenseOverview() {
                 <div className="divide-y divide-line/5">
                   {top.map((x) => (
                     <button key={x.id} onClick={() => openExpense(x)} className="flex w-full items-center gap-3 px-5 py-3 text-left transition hover:bg-line/[.03]">
-                      <span className="grid h-9 w-9 place-items-center rounded-xl text-base" style={{ background: `${categoryColor(x.category)}22` }}>{categoryEmoji(x.category)}</span>
+                      <span className="grid h-9 w-9 place-items-center rounded-xl text-base" style={{ background: `${categoryColor(x.category, categories)}22` }}>{categoryEmoji(x.category, categories)}</span>
                       <div className="min-w-0 flex-1"><div className="truncate text-sm font-medium">{x.description}</div><div className="text-xs text-muted">{new Date(x.txn_date + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" })} · {x.category}</div></div>
                       <span className="num text-sm font-semibold neg">− {fmtRs(x.amount)}</span>
                     </button>

@@ -7,12 +7,12 @@ import type { Asset, Txn } from "@/engine/ledger-engine.js";
 export interface InvestPrefill { type: Txn["type"]; asset?: Asset; assetId?: string; qty?: number }
 
 interface ActionsState {
-  expenseModal: { open: boolean; editing: ExpenseTxn | null };
+  expenseModal: { open: boolean; editing: ExpenseTxn | null; bucket: string | null }; // bucket: preselected for a new txn
   investModal: { open: boolean; txn: Txn | null; prefill: InvestPrefill | null };
   pfOpen: boolean;
   goalModal: { open: boolean; id: string | null }; // id null = new goal
   month: YearMonth;
-  openExpense: (editing?: ExpenseTxn | null) => void;
+  openExpense: (editing?: ExpenseTxn | null, bucket?: string | null) => void;
   closeExpense: () => void;
   openInvest: (txn?: Txn | null, prefill?: InvestPrefill | null) => void;
   closeInvest: () => void;
@@ -23,12 +23,12 @@ interface ActionsState {
 }
 
 export const useActions = create<ActionsState>((set) => ({
-  expenseModal: { open: false, editing: null },
+  expenseModal: { open: false, editing: null, bucket: null },
   investModal: { open: false, txn: null, prefill: null },
   pfOpen: false,
   goalModal: { open: false, id: null },
   month: currentMonth(),
-  openExpense: (editing = null) => set({ expenseModal: { open: true, editing } }),
+  openExpense: (editing = null, bucket = null) => set({ expenseModal: { open: true, editing, bucket } }),
   closeExpense: () => set((s) => ({ expenseModal: { ...s.expenseModal, open: false } })),
   openInvest: (txn = null, prefill = null) => set({ investModal: { open: true, txn, prefill } }),
   closeInvest: () => set((s) => ({ investModal: { ...s.investModal, open: false } })),

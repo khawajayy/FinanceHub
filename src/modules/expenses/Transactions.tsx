@@ -2,7 +2,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Download, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { Card, Empty } from "@/components/ui";
-import { CATEGORIES, categoryColor, categoryEmoji, filterTxns, groupByDay, monthKey, toCSV, totals } from "@/engine/expense-engine";
+import { categoryColor, categoryEmoji, filterTxns, groupByDay, monthKey, toCSV, totals } from "@/engine/expense-engine";
 import { cx, downloadFile, fmtRs } from "@/lib/format";
 import { useActions } from "@/stores/actions";
 import { useExpenses } from "@/stores/expenses";
@@ -14,10 +14,14 @@ export default function ExpenseTransactions() {
   const del = useExpenses((s) => s.deleteTxn);
   const month = useActions((s) => s.month);
   const openExpense = useActions((s) => s.openExpense);
+  const categories = useExpenses((s) => s.categories);
+  const buckets = useExpenses((s) => s.buckets);
   const txns = useMonthTxns();
   const [q, setQ] = useState("");
   const [cat, setCat] = useState("");
-  const filtered = filterTxns(txns, q, cat);
+  const [bucket, setBucket] = useState("");
+  const filtered = filterTxns(txns, q, cat, bucket);
+  const bucketOf = (id: string | null | undefined) => (id ? buckets.find((b) => b.id === id) : undefined);
   const groups = groupByDay(filtered);
   const ft = totals(filtered);
 
@@ -47,9 +51,16 @@ export default function ExpenseTransactions() {
             <select className="input !w-auto min-w-[180px]" value={cat} onChange={(e) => setCat(e.target.value)} aria-label="Filter by category">
               <option value="">All categories</option>
               <option value="__income__">💰 Income</option>
-              {CATEGORIES.map((c) => <option key={c.key} value={c.key}>{c.emoji} {c.key}</option>)}
+              {categories.map((c) => <option key={c.key} value={c.key}>{c.emoji} {c.key}</option>)}
             </select>
-            {(q || cat) && filtered.length > 0 && (
+            {buckets.length > 0 && (
+              <select className="input !w-auto min-w-[150px]" value={bucket} onChange={(e) => setBucket(e.target.value)} aria-label="Filter by bucket">
+                <option value="">All buckets</option>
+                <option value="__none__">Not in a bucket</option>
+                {buckets.map((b) => <option key={b.id} value={b.id}>{b.emoji} {b.name}{b.status === "closed" ? " (closed)" : ""}</option>)}
+              </select>
+            )}
+            {(q || cat || bucket) && filtered.length > 0 && (
               <div className="num ml-auto text-xs"><span className="pos">+{fmtRs(ft.income)}</span> <span className="text-muted">/</span> <span className="neg">−{fmtRs(ft.expenses)}</span></div>
             )}
           </div>
@@ -70,14 +81,18 @@ export default function ExpenseTransactions() {
                     <AnimatePresence initial={false}>
                       {g.items.map((t) => {
                         const isIn = t.direction === "IN";
+                        const b = bucketOf(t.bucket);
                         return (
                           <motion.div key={t.id} layout exit={{ opacity: 0, x: -20, height: 0 }} className="group flex items-center gap-3 px-5 py-3 transition hover:bg-line/[.03]">
-                            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-lg" style={{ background: isIn ? "rgb(var(--pos) / .12)" : `${categoryColor(t.category)}22` }}>
-                              {isIn ? "💰" : categoryEmoji(t.category)}
+                            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-lg" style={{ background: isIn ? "rgb(var(--pos) / .12)" : `${categoryColor(t.category, categories)}22` }}>
+                              {isIn ? "💰" : categoryEmoji(t.category, categories)}
                             </span>
                             <div className="min-w-0 flex-1">
                               <div className="truncate text-sm font-medium">{t.description}</div>
-                              <div className="truncate text-xs text-muted">{isIn ? "Income" : t.category || "Uncategorised"}</div>
+                              <div className="flex items-center gap-2 text-xs text-muted">
+                                <span className="truncate">{isIn ? "Income" : t.category || "Uncategorised"}</span>
+                                {b && <span className="shrink-0 rounded-md px-1.5 py-px text-[10.5px] font-semibold" style={{ background: `${b.color}22`, color: b.color }}>{b.emoji} {b.name}</span>}
+                              </div>
                             </div>
                             <div className={cx("num text-sm font-semibold", isIn ? "pos" : "neg")}>{isIn ? "+" : "−"} {fmtRs(t.amount)}</div>
                             <div className="flex opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100">
