@@ -2,25 +2,28 @@ import { motion } from "framer-motion";
 import { ArrowDownCircle, ArrowUpCircle, ReceiptText } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AmountInput, Field, Modal, Segmented } from "@/components/ui";
-import { CATEGORIES, defaultFormDate, parseDebtPayment, parseDebtTitle, type Direction } from "@/engine/expense-engine";
+import { defaultFormDate, parseDebtPayment, parseDebtTitle, type Direction } from "@/engine/expense-engine";
 import { cx, fmtAmtStr, stripNum } from "@/lib/format";
 import { useActions } from "@/stores/actions";
 import { useExpenses } from "@/stores/expenses";
 import { toast } from "@/stores/ui";
 
 export function ExpenseTxnModal() {
-  const { open, editing } = useActions((s) => s.expenseModal);
+  const { open, editing, bucket: presetBucket } = useActions((s) => s.expenseModal);
   const close = useActions((s) => s.closeExpense);
   const month = useActions((s) => s.month);
   const setMonth = useActions((s) => s.setMonth);
   const addTxn = useExpenses((s) => s.addTxn);
   const updateTxn = useExpenses((s) => s.updateTxn);
+  const categories = useExpenses((s) => s.categories);
+  const allBuckets = useExpenses((s) => s.buckets);
 
   const [date, setDate] = useState("");
   const [amount, setAmount] = useState("");
   const [desc, setDesc] = useState("");
   const [dir, setDir] = useState<Direction>("OUT");
-  const [cat, setCat] = useState<string>(CATEGORIES[0].key);
+  const [cat, setCat] = useState<string>(categories[0].key);
+  const [bucket, setBucket] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -28,13 +31,17 @@ export function ExpenseTxnModal() {
     setAmount(editing ? fmtAmtStr(editing.amount) : "");
     setDesc(editing?.description || "");
     setDir(editing?.direction || "OUT");
-    setCat(editing?.category || CATEGORIES[0].key);
-  }, [open, editing, month]);
+    setCat(editing?.category || categories[0].key);
+    setBucket(editing ? editing.bucket || null : presetBucket);
+  }, [open, editing, month, presetBucket]);
+
+  // Closed buckets are hidden from the picker, unless this transaction is already in one.
+  const buckets = allBuckets.filter((b) => b.status === "active" || b.id === bucket);
 
   const save = async () => {
     const amt = stripNum(amount);
     if (!date || !desc.trim() || !(amt >= 0)) { toast("Please fill in date, description and a valid amount.", true); return; }
-    const payload = { txn_date: date, amount: amt, description: desc.trim(), direction: dir, category: dir === "OUT" ? cat : null };
+    const payload = { txn_date: date, amount: amt, description: desc.trim(), direction: dir, category: dir === "OUT" ? cat : null, bucket };
     if (editing) { await updateTxn(editing.id, payload); toast("Transaction updated"); }
     else toast(await addTxn(payload));
     const [y, m] = date.split("-").map(Number);
@@ -66,7 +73,7 @@ export function ExpenseTxnModal() {
           <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }}>
             <span className="field-label">Category</span>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {CATEGORIES.map((c) => (
+              {categories.map((c) => (
                 <button type="button" key={c.key} onClick={() => setCat(c.key)}
                   className={cx("flex items-center gap-2 rounded-xl px-3 py-2 text-left text-xs font-medium ring-1 transition",
                     cat === c.key ? "bg-line/[.06] text-ink" : "text-muted ring-line/10 hover:text-ink")}
@@ -76,6 +83,25 @@ export function ExpenseTxnModal() {
               ))}
             </div>
           </motion.div>
+        )}
+        {buckets.length > 0 && (
+          <div>
+            <span className="field-label">Bucket <span className="font-normal normal-case tracking-normal text-muted">(optional)</span></span>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={() => setBucket(null)}
+                className={cx("rounded-xl px-3 py-1.5 text-xs font-medium ring-1 transition", !bucket ? "bg-line/[.06] text-ink ring-line/25" : "text-muted ring-line/10 hover:text-ink")}>
+                None
+              </button>
+              {buckets.map((b) => (
+                <button type="button" key={b.id} onClick={() => setBucket(b.id)}
+                  className={cx("flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium ring-1 transition",
+                    bucket === b.id ? "bg-line/[.06] text-ink" : "text-muted ring-line/10 hover:text-ink")}
+                  style={bucket === b.id ? { boxShadow: `0 0 0 1px ${b.color}, 0 0 18px -4px ${b.color}` } : undefined}>
+                  <span className="text-sm">{b.emoji}</span>{b.name}
+                </button>
+              ))}
+            </div>
+          </div>
         )}
         <button type="submit" className="hidden" />
       </form>

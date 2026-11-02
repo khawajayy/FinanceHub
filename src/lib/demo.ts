@@ -3,7 +3,7 @@
  * sample data, without signing in and without touching Firestore.
  * `import.meta.env.DEV` is false in production builds, so this is compiled out.
  */
-import type { Account, ExpenseTxn } from "@/engine/expense-engine";
+import type { Account, Bucket, ExpenseTxn } from "@/engine/expense-engine";
 import { pad } from "@/engine/expense-engine";
 
 export const DEMO = import.meta.env.DEV && typeof location !== "undefined" && new URLSearchParams(location.search).has("demo");
@@ -17,8 +17,14 @@ const t = (back: number, d: number, description: string, amount: number, categor
 
 const H = "Housing & Utilities", F = "Food & Groceries", O = "Outside Food (Takeaway/Dining Out)", T = "Transport", L = "Health & Lifestyle", S = "Savings, Investment & Other", D = "Debt & Loans";
 
-export function demoExpenses(): { txns: ExpenseTxn[]; accounts: Account[] } {
+export function demoExpenses(): { txns: ExpenseTxn[]; accounts: Account[]; buckets: Bucket[] } {
   const txns: ExpenseTxn[] = [];
+  const umrah = (back: number, d: number, description: string, amount: number, category: string) => ({ ...t(back, d, description, amount, category), bucket: "k1" });
+  txns.push(
+    umrah(2, 9, "Umrah visa + insurance", 38000, S), umrah(1, 5, "Flights KHI–JED return", 245000, T), umrah(1, 14, "Hotel Makkah (5 nights)", 165000, H),
+    umrah(1, 21, "Ihram + travel bag", 12500, L), umrah(0, 1, "Hotel Madinah (4 nights)", 98000, H),
+    { ...t(3, 12, "Wedding gift - Bilal", 25000, S), bucket: "k2" }, { ...t(3, 13, "Mehndi outfit", 18000, L), bucket: "k2" },
+  );
   for (let b = 5; b >= 0; b--) {
     const k = 1 + (b % 3) * 0.06;
     txns.push(
@@ -36,6 +42,10 @@ export function demoExpenses(): { txns: ExpenseTxn[]; accounts: Account[] } {
       acc("a1", "Provident Fund", "asset", 850000, 0), acc("a2", "Gold (2 tola)", "asset", 1100000, 1), acc("a3", "Car - Passo", "asset", 2600000, 2),
       acc("b1", "Meezan Bank", "bank", 420000, 0), acc("b2", "HBL", "bank", 135000, 1),
       acc("c1", "Car loan", "debt", 380000, 0), acc("c2", "Ali", "debt", 25000, 1),
+    ],
+    buckets: [
+      { id: "k1", name: "Umrah", emoji: "🕋", color: "#34d399", budget: 650000, status: "active", created_at: 2 },
+      { id: "k2", name: "Bilal's wedding", emoji: "💍", color: "#f472b6", budget: null, status: "closed", created_at: 1 },
     ],
   };
 }

@@ -21,6 +21,7 @@ export default function Hub() {
   const iLoaded = useInvest((s) => s.loaded);
   const etx = useExpenses((s) => s.txns);
   const accounts = useExpenses((s) => s.accounts);
+  const cats = useExpenses((s) => s.categories);
   const inv = useInvest();
   const { openExpense, openInvest, setPf, setMonth } = useActions();
   const p = usePortfolio();
@@ -41,7 +42,7 @@ export default function Hub() {
   }, [inv.transactions, inv.prices, inv.priceHistory, inv.equityHistory, p.equity]);
 
   const activity = useMemo(() => {
-    const a = etx.map((t) => ({ k: "e" + t.id, at: new Date(t.txn_date + "T12:00:00").getTime() + (t.created_at % 1000), icon: t.direction === "IN" ? "💰" : categoryEmoji(t.category),
+    const a = etx.map((t) => ({ k: "e" + t.id, at: new Date(t.txn_date + "T12:00:00").getTime() + (t.created_at % 1000), icon: t.direction === "IN" ? "💰" : categoryEmoji(t.category, cats),
       title: t.description, sub: t.direction === "IN" ? "Income" : t.category || "Expense", amt: (t.direction === "IN" ? "+ " : "− ") + fmtRs(t.amount), tone: t.direction === "IN" ? "pos" : "neg", open: () => openExpense(t) }));
     const b = inv.transactions.map((t) => {
       const sym = t.assetId ? (inv.assets[t.assetId]?.symbol || "").toUpperCase() : "";
@@ -50,7 +51,7 @@ export default function Hub() {
         title: `${t.type[0]}${t.type.slice(1).toLowerCase()}${sym ? " " + sym : ""}`, sub: t.note || "Investments", amt: `${v >= 0 ? "+" : "−"}${fmtUSD(Math.abs(v))}`, tone: v >= 0 ? "pos" : "neg", open: () => openInvest(t) };
     });
     return [...a, ...b].sort((x, y) => y.at - x.at).slice(0, 8);
-  }, [etx, inv.transactions, inv.assets, openExpense, openInvest]);
+  }, [etx, cats, inv.transactions, inv.assets, openExpense, openInvest]);
 
   const goal = [...inv.goals].sort((a, b) => (a.target || 0) - (b.target || 0)).find((g) => p.equity < g.target) || inv.goals[0];
   const parts = [
@@ -117,8 +118,8 @@ export default function Hub() {
             {topCats.length > 0 && <div className="space-y-2 border-t hairline pt-4">
               {topCats.map((c) => (
                 <div key={c.category} className="flex items-center gap-2 text-xs">
-                  <span>{categoryEmoji(c.category)}</span><span className="truncate text-muted">{c.category}</span>
-                  <div className="ml-auto h-1 w-16 overflow-hidden rounded-full bg-line/10"><motion.div className="h-full" style={{ background: categoryColor(c.category) }} initial={{ width: 0 }} animate={{ width: `${(c.amount / mt.expenses) * 100}%` }} transition={{ duration: 1 }} /></div>
+                  <span>{categoryEmoji(c.category, cats)}</span><span className="truncate text-muted">{c.category}</span>
+                  <div className="ml-auto h-1 w-16 overflow-hidden rounded-full bg-line/10"><motion.div className="h-full" style={{ background: categoryColor(c.category, cats) }} initial={{ width: 0 }} animate={{ width: `${(c.amount / mt.expenses) * 100}%` }} transition={{ duration: 1 }} /></div>
                   <span className="num w-24 text-right">{fmtRs(c.amount)}</span>
                 </div>
               ))}

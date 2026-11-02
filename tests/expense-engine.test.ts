@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
-  accountTotals, byCategory, calculatePF, filterTxns, groupByDay, monthRange, parseDebtPayment,
+  accountTotals, bucketSummary, byCategory, calculatePF, categoryColor, categoryEmoji, filterTxns, groupByDay, monthRange, parseDebtPayment,
   parseDebtTitle, shiftMonth, toCSV, totals, type Account, type ExpenseTxn,
 } from "../src/engine/expense-engine";
 
@@ -46,6 +46,28 @@ describe("expense engine", () => {
     expect(filterTxns(list, "rent", "")).toHaveLength(1);
     expect(filterTxns(list, "", "__income__")[0].description).toBe("Salary");
     expect(groupByDay(list).map((g) => g.day)).toEqual(["2026-07-03", "2026-07-01"]);
+  });
+
+  test("bucket filter and summary span months", () => {
+    const list = [
+      tx({ amount: 100, category: "Transport", bucket: "u", txn_date: "2026-09-10" }),
+      tx({ amount: 50, category: "Housing & Utilities", bucket: "u", txn_date: "2026-11-01" }),
+      tx({ amount: 20, direction: "IN", bucket: "u", txn_date: "2026-10-05" }),
+      tx({ amount: 999, category: "Transport" }),
+    ];
+    expect(filterTxns(list, "", "", "u")).toHaveLength(3);
+    expect(filterTxns(list, "", "", "__none__")).toHaveLength(1);
+    const s = bucketSummary(list, "u");
+    expect(s).toMatchObject({ count: 3, spent: 150, received: 20, net: 130, first: "2026-09-10", last: "2026-11-01" });
+    expect(s.categories).toEqual([{ category: "Transport", amount: 100 }, { category: "Housing & Utilities", amount: 50 }]);
+    expect(bucketSummary(list, "nope")).toMatchObject({ count: 0, net: 0, first: null });
+  });
+
+  test("category helpers use the user's list, with a fallback", () => {
+    const cats = [{ key: "Umrah", emoji: "🕋", color: "#123456" }];
+    expect(categoryEmoji("Umrah", cats)).toBe("🕋");
+    expect(categoryColor("Transport", cats)).toBe("#94a3b8");
+    expect(categoryEmoji("Transport")).toBe("🚗");
   });
 
   test("CSV escapes quotes", () => {

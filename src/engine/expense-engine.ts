@@ -14,7 +14,21 @@ export interface ExpenseTxn {
   category: string | null;
   direction: Direction;
   created_at: number; // ms
+  bucket?: string | null; // Bucket id, optional
 }
+
+/** A temporary tag for spending that belongs together (a trip, a wedding, a move). */
+export interface Bucket {
+  id: string;
+  name: string;
+  emoji: string;
+  color: string;
+  budget: number | null;
+  status: "active" | "closed";
+  created_at: number;
+}
+
+export interface Category { key: string; emoji: string; color: string }
 
 export interface Account {
   id: string;
@@ -25,7 +39,8 @@ export interface Account {
   created_at: number;
 }
 
-export const CATEGORIES = [
+/** Defaults until the user edits their list in Settings. */
+export const CATEGORIES: readonly Category[] = [
   { key: "Housing & Utilities", emoji: "🏠", color: "#60a5fa" },
   { key: "Food & Groceries", emoji: "🛒", color: "#34d399" },
   { key: "Outside Food (Takeaway/Dining Out)", emoji: "🍔", color: "#fbbf24" },
@@ -33,11 +48,23 @@ export const CATEGORIES = [
   { key: "Health & Lifestyle", emoji: "💊", color: "#a78bfa" },
   { key: "Savings, Investment & Other", emoji: "📈", color: "#22d3ee" },
   { key: "Debt & Loans", emoji: "💸", color: "#f87171" },
-] as const;
+];
+/** Written by Repay on the Net Worth page, so it can't be renamed or removed. */
+export const DEBT_CATEGORY = "Debt & Loans";
 
-const CAT_MAP = Object.fromEntries(CATEGORIES.map((c) => [c.key, c]));
-export const categoryEmoji = (key: string | null | undefined) => (key && CAT_MAP[key]?.emoji) || "🏷️";
-export const categoryColor = (key: string | null | undefined) => (key && CAT_MAP[key]?.color) || "#94a3b8";
+const findCat = (key: string | null | undefined, cats: readonly Category[]) => (key ? cats.find((c) => c.key === key) : undefined);
+export const categoryEmoji = (key: string | null | undefined, cats: readonly Category[] = CATEGORIES) => findCat(key, cats)?.emoji || "🏷️";
+export const categoryColor = (key: string | null | undefined, cats: readonly Category[] = CATEGORIES) => findCat(key, cats)?.color || "#94a3b8";
+
+export const BUCKET_COLORS = ["#22d3ee", "#a78bfa", "#f472b6", "#fbbf24", "#34d399", "#60a5fa", "#fb923c", "#f87171"];
+
+/** All-time totals for one bucket. Received money (refunds etc.) is shown apart from spending. */
+export function bucketSummary(txns: ExpenseTxn[], bucketId: string) {
+  const items = txns.filter((t) => t.bucket === bucketId);
+  const { income: received, expenses: spent } = totals(items);
+  const dates = items.map((t) => t.txn_date).sort();
+  return { items, count: items.length, spent, received, net: spent - received, first: dates[0] || null, last: dates[dates.length - 1] || null, categories: byCategory(items) };
+}
 
 export const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 export const pad = (n: number) => String(n).padStart(2, "0");
@@ -110,8 +137,11 @@ export function accountTotals(accounts: Account[]) {
   return { assets, banks, debts, net: assets + banks - debts };
 }
 
-export function filterTxns(txns: ExpenseTxn[], query: string, category: string) {
+/** `bucket`: "" = any, "__none__" = not in a bucket, else a bucket id. */
+export function filterTxns(txns: ExpenseTxn[], query: string, category: string, bucket = "") {
   let list = txns;
+  if (bucket === "__none__") list = list.filter((t) => !t.bucket);
+  else if (bucket) list = list.filter((t) => t.bucket === bucket);
   const q = query.toLowerCase().trim();
   if (q) list = list.filter((t) => t.description.toLowerCase().includes(q) || (t.category || "").toLowerCase().includes(q));
   if (category === "__income__") list = list.filter((t) => t.direction === "IN");

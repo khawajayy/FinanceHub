@@ -17,6 +17,8 @@ import Hub from "@/pages/Hub";
 import ExpenseOverview from "@/modules/expenses/Overview";
 import ExpenseTransactions from "@/modules/expenses/Transactions";
 import NetWorth from "@/modules/expenses/NetWorth";
+import Buckets from "@/modules/expenses/Buckets";
+import Settings from "@/pages/Settings";
 import { ExpenseTxnModal } from "@/modules/expenses/TxnModal";
 import { PFCalculator } from "@/modules/expenses/PFCalculator";
 import InvestDashboard from "@/modules/invest/Dashboard";
@@ -63,6 +65,8 @@ export default function App() {
               <Route path="expenses" element={<ExpenseOverview />} />
               <Route path="expenses/transactions" element={<ExpenseTransactions />} />
               <Route path="expenses/networth" element={<NetWorth />} />
+              <Route path="expenses/buckets" element={<Buckets />} />
+              <Route path="settings" element={<Settings />} />
               <Route path="invest" element={<InvestDashboard />} />
               <Route path="invest/holdings" element={<Holdings />} />
               <Route path="invest/watchlist" element={<Watchlist />} />
