@@ -19,7 +19,10 @@ export interface Vehicle {
   startOdo: number; // odometer when added
   createdAt: number;
 }
-export interface FuelLog { id: string; vehicleId: string; date: string; odo: number; litres: number; cost: number; full: boolean; station: string; createdAt: number }
+export interface FuelLog {
+  id: string; vehicleId: string; date: string; odo: number; litres: number; cost: number; full: boolean; station: string; createdAt: number;
+  tankPct?: number | null; // partial fills: how full the tank was after filling, 0-100
+}
 export interface OdoLog { id: string; vehicleId: string; date: string; odo: number; note: string; createdAt: number }
 export interface ServiceLog { id: string; vehicleId: string; date: string; odo: number | null; title: string; cost: number; workshop: string; note: string; createdAt: number }
 export interface Reminder {
@@ -136,6 +139,32 @@ export function fuelSegments(logs: FuelLog[]): FuelSegment[] {
       if (km > 0 && litres > 0) out.push({ date: f.date, km, litres, cost, kmpl: km / litres, logId: f.id });
       prevFull = f; litres = 0; cost = 0;
     }
+  }
+  return out;
+}
+
+export interface FuelEstimate { km: number; litres: number; kmpl: number }
+
+/**
+ * Rough km/l for partial fills that record a tank level:
+ *   km since the last known level / (that level + litres added - level now).
+ * Fuel gauges are imprecise, so these are shown as estimates and left out of
+ * the average, which still comes only from full tanks.
+ */
+export function partialEstimates(logs: FuelLog[], tankLitres: number | null | undefined) {
+  const out = new Map<string, FuelEstimate>();
+  if (!tankLitres || tankLitres <= 0) return out;
+  let known: { odo: number; level: number } | null = null, added = 0;
+  for (const f of sortFuel(logs)) {
+    if (f.full) { known = { odo: f.odo, level: tankLitres }; added = 0; continue; }
+    added += f.litres;
+    if (f.tankPct == null) continue; // level unknown: its litres carry to the next known level
+    const level = (f.tankPct / 100) * tankLitres;
+    if (known) {
+      const km = f.odo - known.odo, used = known.level + added - level;
+      if (km > 0 && used > 0) out.set(f.id, { km, litres: used, kmpl: km / used });
+    }
+    known = { odo: f.odo, level }; added = 0;
   }
   return out;
 }
@@ -264,7 +293,7 @@ export function vehicleInsights(input: { fuel: FuelLog[]; service: ServiceLog[];
 }
 
 /* ---------- fuel CSV import ---------- */
-export interface FuelImportRow { date: string; odo: number; litres: number; cost: number; full: boolean; station: string }
+export interface FuelImportRow { date: string; odo: number; litres: number; cost: number; full: boolean; tankPct: number | null; station: string }
 
 function csvRows(text: string) {
   const rows: string[][] = [];
@@ -292,7 +321,7 @@ export function parseFuelCsv(text: string) {
   const rows = csvRows(text);
   const head = (rows[0] || []).map((h) => h.trim().toLowerCase());
   const col = (name: string) => head.findIndex((h) => h.startsWith(name));
-  const c = { date: col("date"), odo: col("odometer"), litres: col("litres"), cost: col("cost"), price: col("rs per litre"), full: col("full"), station: col("station") };
+  const c = { date: col("date"), odo: col("odometer"), litres: col("litres"), cost: col("cost"), price: col("rs per litre"), full: col("full"), tank: col("tank"), station: col("station") };
   if (c.date < 0 || c.odo < 0 || c.litres < 0 || (c.cost < 0 && c.price < 0)) {
     return { rows: [] as FuelImportRow[], errors: [{ line: 1, message: "Expected columns: Date, Odometer (km), Litres, and Cost (Rs) or Rs per litre." }] };
   }
@@ -307,12 +336,15 @@ export function parseFuelCsv(text: string) {
     let cost = c.cost >= 0 ? num(r[c.cost]) : NaN;
     if (!Number.isFinite(cost) && price > 0 && litres > 0) cost = Math.round(price * litres * 100) / 100;
     const fullRaw = c.full >= 0 ? (r[c.full] || "").trim().toLowerCase() : "yes";
+    const tankRaw = c.tank >= 0 ? (r[c.tank] || "").replace("%", "").trim() : "";
+    const tankPct = tankRaw ? num(tankRaw) : null;
     if (!validDay(date)) errors.push({ line, message: `Invalid date "${date}" (use YYYY-MM-DD).` });
     else if (!(odo >= 0)) errors.push({ line, message: "Invalid odometer." });
     else if (!(litres > 0)) errors.push({ line, message: "Invalid litres." });
     else if (!(cost >= 0)) errors.push({ line, message: "Invalid cost." });
     else if (![...YES, ...NO].includes(fullRaw)) errors.push({ line, message: `Unclear full-tank value "${fullRaw}" (use yes or no).` });
-    else out.push({ date, odo, litres, cost, full: YES.includes(fullRaw), station: c.station >= 0 ? (r[c.station] || "").trim().slice(0, 60) : "" });
+    else if (tankPct != null && !(tankPct >= 0 && tankPct <= 100)) errors.push({ line, message: `Tank % must be 0-100, got "${tankRaw}".` });
+    else out.push({ date, odo, litres, cost, full: YES.includes(fullRaw), tankPct: YES.includes(fullRaw) ? null : tankPct, station: c.station >= 0 ? (r[c.station] || "").trim().slice(0, 60) : "" });
   });
   return { rows: out, errors };
 }

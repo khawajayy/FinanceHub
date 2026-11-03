@@ -171,6 +171,10 @@ service cloud.firestore {
       return v == null || v is number;
     }
 
+    function validTankPct(v) {
+      return v == null || (v is number && v >= 0 && v <= 100);
+    }
+
     match /garage/{uid}/vehicles/{id} {
       allow read, delete: if isOwner(uid);
       allow create, update: if isOwner(uid)
@@ -190,7 +194,8 @@ service cloud.firestore {
     match /garage/{uid}/fuel/{id} {
       allow read, delete: if isOwner(uid);
       allow create, update: if isOwner(uid)
-        && request.resource.data.keys().hasOnly(['vehicleId', 'date', 'odo', 'litres', 'cost', 'full', 'station', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['vehicleId', 'date', 'odo', 'litres', 'cost', 'full', 'station', 'createdAt', 'tankPct'])
+        && validTankPct(request.resource.data.get('tankPct', null))
         && request.resource.data.vehicleId is string
         && validDate(request.resource.data.date)
         && request.resource.data.odo is number && request.resource.data.odo >= 0

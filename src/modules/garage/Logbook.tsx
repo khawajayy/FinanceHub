@@ -1,7 +1,7 @@
 import { Download, Fuel, Gauge as GaugeIcon, Pencil, Plus, Trash2, Upload } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Card, CardHeader, Empty, Segmented, Skeleton, Tag } from "@/components/ui";
-import { parseFuelCsv, planFuelImport } from "@/engine/garage-engine";
+import { parseFuelCsv, partialEstimates, planFuelImport } from "@/engine/garage-engine";
 import { cx, downloadFile, fmtRs } from "@/lib/format";
 import { useGarage } from "@/stores/garage";
 import { confirmDialog, toast } from "@/stores/ui";
@@ -16,14 +16,15 @@ export default function Logbook() {
 
   const rows = useMemo(() => {
     const bySeg = new Map(stats.segments.map((s) => [s.logId, s]));
-    return [...fuel].reverse().map((f, i, arr) => ({ f, seg: bySeg.get(f.id), km: arr[i + 1] ? f.odo - arr[i + 1].odo : null }));
-  }, [fuel, stats]);
+    const est = partialEstimates(fuel, v?.tankLitres);
+    return [...fuel].reverse().map((f, i, arr) => ({ f, seg: bySeg.get(f.id), est: est.get(f.id), km: arr[i + 1] ? f.odo - arr[i + 1].odo : null }));
+  }, [fuel, stats, v?.tankLitres]);
   const miles = useMemo(() => [...odometer].sort((a, b) => b.odo - a.odo), [odometer]);
 
   const exportCsv = () => {
     if (!v || !fuel.length) { toast("No fill-ups to export", true); return; }
-    const lines = ["Date,Odometer (km),Litres,Cost (Rs),Rs per litre,Full tank,Station"];
-    for (const f of fuel) lines.push(`${f.date},${f.odo},${f.litres},${f.cost},${(f.cost / f.litres).toFixed(2)},${f.full ? "yes" : "no"},"${f.station.replace(/"/g, '""')}"`);
+    const lines = ["Date,Odometer (km),Litres,Cost (Rs),Rs per litre,Full tank,Tank %,Station"];
+    for (const f of fuel) lines.push(`${f.date},${f.odo},${f.litres},${f.cost},${(f.cost / f.litres).toFixed(2)},${f.full ? "yes" : "no"},${f.tankPct ?? ""},"${f.station.replace(/"/g, '""')}"`);
     downloadFile(`fuel-log-${v.name.replace(/[^\w-]+/g, "_")}.csv`, lines.join("\n"), "text/csv;charset=utf-8;");
     toast("CSV exported");
   };
@@ -87,21 +88,21 @@ export default function Logbook() {
 
       {tab === "fuel" ? (
         <Card>
-          <CardHeader title="Fill-ups" icon={<Fuel size={16} />} sub="km/l shows on each full tank, counted from the previous full tank" />
+          <CardHeader title="Fill-ups" icon={<Fuel size={16} />} sub="km/l is measured between full tanks; ≈ marks an estimate from a partial fill's tank level" />
           {!rows.length ? <Empty icon="⛽" title="No fill-ups yet" sub="Fill to full and log it. Your fuel average starts from the second full tank." /> : (
             <div className="overflow-x-auto">
               <table className="tbl">
                 <thead><tr><th>Date</th><th className="!text-right">Odometer</th><th className="!text-right">Distance</th><th className="!text-right">Litres</th><th className="!text-right">Rs/L</th><th className="!text-right">Cost</th><th className="!text-right">km/l</th><th>Station</th><th /></tr></thead>
                 <tbody>
-                  {rows.map(({ f, seg, km }) => (
+                  {rows.map(({ f, seg, est, km }) => (
                     <tr key={f.id}>
-                      <td className="text-sm">{prettyDay(f.date)}{!f.full && <Tag className="ml-2 !normal-case">partial</Tag>}</td>
+                      <td className="text-sm">{prettyDay(f.date)}{!f.full && <Tag className="ml-2 !normal-case">partial{f.tankPct != null ? ` · ${f.tankPct}%` : ""}</Tag>}</td>
                       <td className="num text-right">{f.odo.toLocaleString()}</td>
                       <td className="num text-right text-muted">{km != null ? `+${km.toLocaleString()}` : "—"}</td>
                       <td className="num text-right">{f.litres.toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
                       <td className="num text-right text-muted">{(f.cost / f.litres).toFixed(1)}</td>
                       <td className="num text-right">{fmtRs(f.cost)}</td>
-                      <td className={cx("num text-right font-semibold", seg && stats.avgKmpl != null && (seg.kmpl >= stats.avgKmpl ? "pos" : "text-amber"))}>{seg ? seg.kmpl.toFixed(1) : <span className="font-normal text-muted">—</span>}</td>
+                      <td className={cx("num text-right font-semibold", seg && stats.avgKmpl != null && (seg.kmpl >= stats.avgKmpl ? "pos" : "text-amber"))}>{seg ? seg.kmpl.toFixed(1) : est ? <span className="font-normal text-muted" title="Estimate from the tank level. Not included in the average.">≈{est.kmpl.toFixed(1)}</span> : <span className="font-normal text-muted">—</span>}</td>
                       <td className="max-w-[120px] truncate text-sm text-muted">{f.station}</td>
                       <td className="w-px text-right"><div className="inline-flex">
                         <button className="icon-btn" aria-label="Edit fill-up" onClick={() => openModal({ type: "fuel", id: f.id })}><Pencil size={14} /></button>
