@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
-  addMonthsIso, advanceReminder, currentOdo, fuelByMonth, fuelSegments, fuelStats, kmPerDay, odoConflict, odoPoints, reminderStatus, runningCosts, vehicleInsights,
+  addMonthsIso, advanceReminder, currentOdo, fuelByMonth, fuelSegments, fuelStats, kmPerDay, odoConflict, odoPoints, parseFuelCsv, planFuelImport, reminderStatus, runningCosts, vehicleInsights,
   type FuelLog, type Reminder, type ServiceLog, type Vehicle,
 } from "../src/engine/garage-engine";
 
@@ -101,6 +101,47 @@ describe("maintenance", () => {
   test("month arithmetic clamps to month length", () => {
     expect(addMonthsIso("2026-01-31", 1)).toBe("2026-02-28");
     expect(addMonthsIso("2026-11-15", 3)).toBe("2027-02-15");
+  });
+});
+
+describe("fuel CSV import", () => {
+  const HEAD = "Date,Odometer (km),Litres,Cost (Rs),Rs per litre,Full tank,Station";
+
+  test("reads the export format, including quotes, commas and Windows line endings", () => {
+    const { rows, errors } = parseFuelCsv(`${HEAD}\r\n2026-01-01,"1,000",30,"9,000.50",300,yes,"PSO, Main ""Blvd"""\r\n2026-01-10,1400,25,7500,300,no,\r\n`);
+    expect(errors).toEqual([]);
+    expect(rows).toEqual([
+      { date: "2026-01-01", odo: 1000, litres: 30, cost: 9000.5, full: true, station: 'PSO, Main "Blvd"' },
+      { date: "2026-01-10", odo: 1400, litres: 25, cost: 7500, full: false, station: "" },
+    ]);
+  });
+
+  test("column order doesn't matter, and cost can come from price", () => {
+    const { rows } = parseFuelCsv("Litres,Rs per litre,Date,Odometer\n10,250.5,2026-02-01,500");
+    expect(rows[0]).toMatchObject({ date: "2026-02-01", odo: 500, litres: 10, cost: 2505, full: true });
+  });
+
+  test("reports bad lines with their line number instead of guessing", () => {
+    const { rows, errors } = parseFuelCsv(`${HEAD}\n2026-13-45,1000,30,9000,,yes,\n2026-01-02,abc,30,9000,,yes,\n2026-01-03,1000,0,9000,,yes,\n2026-01-04,1000,30,,,yes,\n2026-01-05,1000,30,9000,,maybe,\n\n2026-01-06,1000,30,9000,,no,`);
+    expect(errors.map((e) => e.line)).toEqual([2, 3, 4, 5, 6]);
+    expect(rows.map((r) => r.date)).toEqual(["2026-01-06"]);
+    expect(parseFuelCsv("name,value\na,b").errors[0].message).toContain("Expected columns");
+  });
+
+  test("skips what's already logged and anything that would run the odometer backwards", () => {
+    const row = (date: string, odo: number) => ({ date, odo, litres: 10, cost: 100, full: true, station: "" });
+    const existing = [fill("2026-03-01", 2000, 1, 1)];
+    const plan = planFuelImport([row("2026-04-01", 3000), row("2026-03-01", 2000), row("2026-02-01", 2500), row("2026-02-15", 1500), row("2026-03-15", 2900), row("2026-03-20", 2800)], existing, [{ date: "2026-03-01", odo: 2000 }]);
+    expect(plan.duplicates.map((r) => r.odo)).toEqual([2000]);
+    expect(plan.conflicts.map((c) => c.row.odo)).toEqual([2500, 2800]);
+    expect(plan.toAdd.map((r) => r.odo)).toEqual([1500, 2900, 3000]); // oldest first
+  });
+
+  test("importing the same file twice adds nothing", () => {
+    const row = { date: "2026-04-01", odo: 3000, litres: 10, cost: 100, full: true, station: "" };
+    const first = planFuelImport([row], [], []);
+    expect(first.toAdd).toHaveLength(1);
+    expect(planFuelImport([row], [fill("2026-04-01", 3000, 10, 100)], [{ date: "2026-04-01", odo: 3000 }]).toAdd).toHaveLength(0);
   });
 });
 

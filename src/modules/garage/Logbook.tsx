@@ -1,16 +1,17 @@
-import { Download, Fuel, Gauge as GaugeIcon, Pencil, Plus, Trash2 } from "lucide-react";
+import { Download, Fuel, Gauge as GaugeIcon, Pencil, Plus, Trash2, Upload } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Card, CardHeader, Empty, Segmented, Skeleton, Tag } from "@/components/ui";
+import { parseFuelCsv, planFuelImport } from "@/engine/garage-engine";
 import { cx, downloadFile, fmtRs } from "@/lib/format";
 import { useGarage } from "@/stores/garage";
-import { toast } from "@/stores/ui";
+import { confirmDialog, toast } from "@/stores/ui";
 import { PageTitle } from "@/modules/expenses/common";
 import { VehicleSwitcher, fmtKm, prettyDay, useVehicleData } from "./common";
 
 export default function Logbook() {
   const loaded = useGarage((s) => s.loaded);
-  const { openModal, remove, restore } = useGarage();
-  const { vehicle: v, fuel, odometer, stats } = useVehicleData();
+  const { openModal, remove, restore, importFuel, removeFuelMany } = useGarage();
+  const { vehicle: v, fuel, odometer, service, stats } = useVehicleData();
   const [tab, setTab] = useState<"fuel" | "mileage">("fuel");
 
   const rows = useMemo(() => {
@@ -26,6 +27,42 @@ export default function Logbook() {
     downloadFile(`fuel-log-${v.name.replace(/[^\w-]+/g, "_")}.csv`, lines.join("\n"), "text/csv;charset=utf-8;");
     toast("CSV exported");
   };
+  const importCsv = () => {
+    if (!v) return;
+    const inp = document.createElement("input");
+    inp.type = "file"; inp.accept = ".csv,text/csv";
+    inp.onchange = () => {
+      const file = inp.files?.[0];
+      if (!file) return;
+      if (file.size > 2 * 1024 * 1024) { toast("Import failed: file is larger than 2 MB", true); return; }
+      const rd = new FileReader();
+      rd.onerror = () => toast("Couldn't read that file", true);
+      rd.onload = async () => {
+        const { rows: parsed, errors } = parseFuelCsv(String(rd.result));
+        // only real readings count here: the odometer typed when adding the vehicle may be newer than these logs
+        const logged = [...fuel, ...odometer, ...service].flatMap((x) => (x.odo == null ? [] : [{ date: x.date, odo: x.odo }]));
+        const plan = planFuelImport(parsed, fuel, logged);
+        if (!plan.toAdd.length) {
+          const why = errors[0] ? `Line ${errors[0].line}: ${errors[0].message}` : plan.duplicates.length ? "Every fill-up in this file is already logged." : plan.conflicts[0] ? plan.conflicts[0].message : "The file has no fill-ups.";
+          toast(`Nothing imported. ${why}`, true);
+          return;
+        }
+        const first = plan.toAdd[0].date, last = plan.toAdd[plan.toAdd.length - 1].date;
+        const notes = [
+          plan.duplicates.length && `${plan.duplicates.length} already logged and skipped`,
+          plan.conflicts.length && `${plan.conflicts.length} skipped because the odometer would run backwards (first: ${plan.conflicts[0].row.date}, ${plan.conflicts[0].row.odo.toLocaleString()} km)`,
+          errors.length && `${errors.length} invalid line${errors.length === 1 ? "" : "s"} skipped (first: line ${errors[0].line}, ${errors[0].message})`,
+        ].filter(Boolean);
+        const total = plan.toAdd.reduce((s, r) => s + r.cost, 0);
+        const message = `Add ${plan.toAdd.length} fill-up${plan.toAdd.length === 1 ? "" : "s"} to ${v.name}, from ${first} to ${last}, totalling ${fmtRs(total)}? They stay in Garage and aren't added to Expenses.${notes.length ? ` ${notes.join("; ")}.` : ""}`;
+        if (!(await confirmDialog("Import fill-ups", message, { confirmText: "Import" }))) return;
+        const ids = importFuel(v.id, plan.toAdd);
+        toast(`Imported ${ids.length} fill-up${ids.length === 1 ? "" : "s"}`, false, { label: "Undo", onClick: () => removeFuelMany(ids) });
+      };
+      rd.readAsText(file);
+    };
+    inp.click();
+  };
   const del = (coll: "fuel" | "odometer", id: string, label: string) => {
     const r = remove(coll, id);
     if (r) toast(`Deleted ${label}`, false, { label: "Undo", onClick: () => restore(coll, r) });
@@ -40,7 +77,10 @@ export default function Logbook() {
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <Segmented id="ltab" value={tab} onChange={setTab} options={[{ value: "fuel", label: "⛽ Fuel" }, { value: "mileage", label: "📍 Mileage" }]} />
         <div className="ml-auto flex gap-2">
-          {tab === "fuel" && <button className="btn" onClick={exportCsv}><Download size={15} /> CSV</button>}
+          {tab === "fuel" && <>
+            <button className="btn" onClick={importCsv} title="Import fill-ups from a CSV in the same format as the export"><Upload size={15} /> Import</button>
+            <button className="btn" onClick={exportCsv}><Download size={15} /> Export</button>
+          </>}
           <button className="btn btn-primary" onClick={() => openModal({ type: tab === "fuel" ? "fuel" : "odometer" })}><Plus size={15} /> {tab === "fuel" ? "Log fill-up" : "Log mileage"}</button>
         </div>
       </div>
