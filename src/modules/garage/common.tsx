@@ -1,6 +1,6 @@
-import { motion } from "framer-motion";
+import { animate, motion, useReducedMotion } from "framer-motion";
 import { AlertTriangle, CheckCircle2, Clock, Plus } from "lucide-react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   currentOdo, fuelStats, isoDay, kindEmoji, kmPerDay, odoPoints, reminderStatus, runningCosts, sortFuel, sortReminders,
   type DueStatus, type Reminder,
@@ -103,6 +103,16 @@ export function Gauge({ value, max, label, sub, size = 210 }: { value: number | 
   };
   const frac = value != null && max > 0 ? Math.max(0, Math.min(1, value / max)) : 0;
   const angle = start + sweep * frac;
+  // Animated as a number and applied with SVG's rotate(angle cx cy), which always pivots on the
+  // hub. A CSS transform-origin in px resolves against the needle's own box on SVG elements.
+  const reduce = useReducedMotion();
+  const [needle, setNeedle] = useState(reduce ? angle : start);
+  const from = useRef(needle);
+  useEffect(() => {
+    if (reduce) { from.current = angle; setNeedle(angle); return; }
+    const a = animate(from.current, angle, { type: "spring", stiffness: 50, damping: 11, delay: 0.1, onUpdate: (v) => { from.current = v; setNeedle(v); } });
+    return () => a.stop();
+  }, [angle, reduce]);
   const ticks = Array.from({ length: 13 }, (_, i) => start + (sweep * i) / 12);
   return (
     <div className="relative mx-auto" style={{ width: size, height: size * 0.86 }}>
@@ -113,9 +123,9 @@ export function Gauge({ value, max, label, sub, size = 210 }: { value: number | 
           initial={{ pathLength: 0 }} animate={{ pathLength: frac }} transition={{ duration: 1.5, ease: [0.22, 1, 0.36, 1] }} style={{ filter: "drop-shadow(0 0 8px rgb(var(--cyan) / .35))" }} />}
         {ticks.map((d, i) => { const [x1, y1] = pt(d, r - 12), [x2, y2] = pt(d, r - (i % 3 === 0 ? 20 : 16)); return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke="rgb(var(--muted) / .5)" strokeWidth={i % 3 === 0 ? 2 : 1} />; })}
         {value != null && (
-          <motion.g initial={{ rotate: start }} animate={{ rotate: angle }} transition={{ type: "spring", stiffness: 50, damping: 11, delay: 0.1 }} style={{ transformOrigin: `${c}px ${c}px` }}>
+          <g transform={`rotate(${needle.toFixed(2)} ${c} ${c})`}>
             <line x1={c} y1={c} x2={c + r - 26} y2={c} stroke="rgb(var(--ink))" strokeWidth={3} strokeLinecap="round" style={{ filter: "drop-shadow(0 0 5px rgb(var(--cyan)))" }} />
-          </motion.g>
+          </g>
         )}
         <circle cx={c} cy={c} r={7} fill="rgb(var(--bg))" stroke="rgb(var(--cyan))" strokeWidth={2.5} />
       </svg>
