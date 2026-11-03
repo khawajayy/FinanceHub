@@ -19,6 +19,7 @@ const LOCAL_KEY = "nexus.invest.local.v1";
 const FX_TTL_MS = 30 * 60 * 1000;
 const HISTORY_TTL_MS = 60 * 60 * 1000;
 const EPS = LE.EPS;
+const LOAD_FAILED_MSG = "Couldn't load your ledger, so that change wasn't saved. Reload and try again.";
 
 export type RangePreset = "all" | "ytd" | "24h" | "7d" | "30d" | "90d" | "1y" | "custom";
 export interface Prefs {
@@ -77,9 +78,18 @@ export function normalizeSynced(s: Record<string, unknown> | null | undefined): 
   };
 }
 
+/** Account that wrote the local copy; it must never be shown to, or mixed with, another account. */
+let localOwner: string | null = null;
+
+/** The per-account part of Local. FX rates are public, so they stay. */
+const emptyLocal = (): Omit<Local, "fx"> => ({
+  prices: LE.sanitizePrices(null), priceHistory: LE.sanitizePriceHistory(null), equityHistory: [], prefs: DEFAULT_PREFS,
+});
+
 function loadLocal(): Local {
   let raw: Record<string, unknown> = {};
   try { raw = JSON.parse(localStorage.getItem(LOCAL_KEY) || "{}") || {}; } catch { /* corrupt or blocked */ }
+  localOwner = typeof raw.owner === "string" ? raw.owner : null;
   const fx = raw.fx as Local["fx"] | undefined;
   const p = (raw.prefs || {}) as Partial<Prefs>;
   const presets: RangePreset[] = ["all", "ytd", "24h", "7d", "30d", "90d", "1y", "custom"];
@@ -101,13 +111,17 @@ function loadLocal(): Local {
 interface InvestState extends Synced, Local {
   uid: string | null;
   loaded: boolean;
+  /** The ledger couldn't be read, so saving would overwrite it with empty data. */
+  loadFailed: boolean;
   cloudStatus: string;
   priceStatus: string;
   refreshing: boolean;
   start: (uid: string) => void;
   stop: () => void;
-  /** Change synced data (transactions, goals, …) and schedule a cloud push. */
+  /** Change synced data (transactions, goals, …) and schedule a cloud push. Waits for the ledger to load first. */
   mutate: (fn: (draft: Synced) => void) => void;
+  /** Push a pending edit now instead of waiting for the debounce. */
+  flush: () => void;
   replaceAll: (s: Synced) => void;
   setPrefs: (p: Partial<Prefs>) => void;
   refreshPrices: () => Promise<void>;
@@ -122,13 +136,15 @@ let autoTimer: ReturnType<typeof setInterval> | null = null;
 let refreshing: Promise<void> | null = null;
 let refreshQueued = false;
 let historyFetchAt = 0;
+let queued: ((draft: Synced) => void)[] = []; // edits made before the first real snapshot
 
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
 
 export const useInvest = create<InvestState>((set, get) => {
   const persistLocal = () => {
-    const { prices, priceHistory, equityHistory, fx, prefs } = get();
-    try { localStorage.setItem(LOCAL_KEY, JSON.stringify({ prices, priceHistory, equityHistory, fx, prefs })); }
+    const { uid, prices, priceHistory, equityHistory, fx, prefs } = get();
+    if (!uid) return; // e.g. a price refresh that finished after sign-out
+    try { localStorage.setItem(LOCAL_KEY, JSON.stringify({ owner: uid, prices, priceHistory, equityHistory, fx, prefs })); }
     catch { /* quota / private mode */ }
   };
 
@@ -163,12 +179,14 @@ export const useInvest = create<InvestState>((set, get) => {
   return {
     ...emptySynced(),
     ...loadLocal(),
-    uid: null, loaded: false, cloudStatus: "", priceStatus: "idle", refreshing: false,
+    uid: null, loaded: false, loadFailed: false, cloudStatus: "", priceStatus: "idle", refreshing: false,
 
     start: (uid) => {
       if (get().uid === uid) return;
       get().stop();
-      set({ uid, loaded: false, cloudStatus: "connecting…" });
+      if (localOwner && localOwner !== uid) set(emptyLocal());
+      localOwner = uid;
+      set({ uid, loaded: false, loadFailed: false, cloudStatus: "connecting…" });
       if (DEMO) {
         set({ ...normalizeSynced(demoLedger()), loaded: true, cloudStatus: "demo · not synced" });
         get().ensureFx().then(() => get().refreshPrices());
@@ -178,26 +196,44 @@ export const useInvest = create<InvestState>((set, get) => {
       unsub = onSnapshot(doc(db, "ledgers", uid), { includeMetadataChanges: false }, (snap) => {
         if (snap.metadata.hasPendingWrites) return;          // our own optimistic write
         const remote = snap.exists() ? snap.data() : null;
+        if (!remote && snap.metadata.fromCache) return;      // offline with no cache: says nothing about the server
         if (remote && remote.updatedAt && remote.updatedAt === lastPushedAt && !first) return; // echo
         const n = normalizeSynced(remote);
         if (n.dropped) console.warn(`Dropped ${n.dropped} invalid ledger transaction(s)`);
         set({ ...n, loaded: true, cloudStatus: "synced" });
         setupAuto();
+        const waiting = queued;
+        queued = [];
+        waiting.forEach((fn) => get().mutate(fn));
         if (first) {
           first = false;
           get().ensureFx().then(() => { if (get().transactions.length) get().refreshPrices(); });
         }
-      }, (e) => { console.error(e); set({ cloudStatus: "sync error", loaded: true }); });
+      }, (e) => {
+        console.error(e);
+        if (queued.length) toast(LOAD_FAILED_MSG, true);
+        queued = [];
+        set({ cloudStatus: "sync error", loaded: true, loadFailed: true });
+      });
     },
 
     stop: () => {
       if (unsub) { unsub(); unsub = null; }
       if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
       if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
-      set({ ...emptySynced(), uid: null, loaded: false, cloudStatus: "" });
+      queued = [];
+      // Only when an account was active: this also runs on every page load, before auth is known.
+      if (get().uid) {
+        try { localStorage.removeItem(LOCAL_KEY); } catch { /* private mode */ }
+        localOwner = null;
+        set(emptyLocal());
+      }
+      set({ ...emptySynced(), uid: null, loaded: false, loadFailed: false, cloudStatus: "" });
     },
 
     mutate: (fn) => {
+      if (get().loadFailed) { toast(LOAD_FAILED_MSG, true); return; }
+      if (!get().loaded) { queued.push(fn); return; }
       const draft: Synced = clone({
         transactions: get().transactions, assets: get().assets, settings: get().settings,
         goals: get().goals, favorites: get().favorites, dataUpdatedAt: get().dataUpdatedAt,
@@ -209,6 +245,13 @@ export const useInvest = create<InvestState>((set, get) => {
       if (draft.settings.autoRefreshSec !== prevAuto) setupAuto();
       if (pushTimer) clearTimeout(pushTimer);
       pushTimer = setTimeout(pushNow, 700);
+    },
+
+    flush: () => {
+      if (!pushTimer) return;
+      clearTimeout(pushTimer);
+      pushTimer = null;
+      pushNow();
     },
 
     replaceAll: (s) => get().mutate((d) => Object.assign(d, clone(s))),
@@ -227,6 +270,7 @@ export const useInvest = create<InvestState>((set, get) => {
       if (refreshing) { refreshQueued = true; return refreshing; }
       refreshing = (async () => {
         set({ refreshing: true });
+        const uid = get().uid;
         await get().ensureFx();
         const s = get();
         const pos = summarize(s).positions;
@@ -241,6 +285,7 @@ export const useInvest = create<InvestState>((set, get) => {
           cryptos.length ? fetchCryptoPrices(cryptos).catch(() => ({})) : {},
           stocks.length ? fetchStockPrices(stocks, s.settings.finnhubKey) : {},
         ]);
+        if (get().uid !== uid) { set({ refreshing: false }); return; } // signed out while fetching
         const now = new Date().toISOString();
         const prices = { ...get().prices };
         let ok = 0;
@@ -268,6 +313,7 @@ export const useInvest = create<InvestState>((set, get) => {
       const todo = ids.filter((id) => { const c = s.priceHistory[id]; return !(c && c.days >= days && Date.now() - c.updatedAt < HISTORY_TTL_MS); });
       if (!todo.length) return;
       const res = await Promise.all(todo.map((id) => fetchPriceHistory(s.assets[id], days)));
+      if (get().uid !== s.uid) return;
       const ph = { ...get().priceHistory };
       let changed = false;
       res.forEach((h, i) => { if (h) { ph[todo[i]] = h; changed = true; } });

@@ -40,7 +40,7 @@ export function Arrow({ n }: { n: number }) {
 }
 
 export function AssetBadge({ a, size = 34 }: { a: Asset; size?: number }) {
-  const img = LE.safeUrl(a.img);
+  const img = LE.safeAssetImg(a.img);
   return (
     <div className="grid shrink-0 place-items-center overflow-hidden rounded-xl bg-gradient-to-br from-cyan/20 to-violet/20 text-[10px] font-bold ring-1 ring-line/10" style={{ width: size, height: size }}>
       {img ? <img src={img} alt="" referrerPolicy="no-referrer" className="h-full w-full object-cover p-1" /> : (a.symbol || "?").slice(0, 3).toUpperCase()}

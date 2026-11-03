@@ -174,12 +174,17 @@ export function findDebt(accounts: Account[], name: string) {
 
 export const isProvidentFund = (a: Account) => a.kind === "asset" && /provident|pf\b/i.test(a.name);
 
+/** One quoted CSV text cell. The leading ' stops spreadsheets running a value that starts like a formula. */
+export function csvCell(value: string) {
+  const text = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
 export function toCSV(txns: ExpenseTxn[]) {
   const header = "Date,Description,Category,Direction,Amount";
   const rows = [...txns].sort((a, b) => a.txn_date.localeCompare(b.txn_date) || a.created_at - b.created_at).map((t) => {
-    const desc = `"${t.description.replace(/"/g, '""')}"`;
     const cat = t.direction === "IN" ? "Income" : t.category || "Uncategorised";
-    return `${t.txn_date},${desc},"${cat}",${t.direction},${t.amount}`;
+    return `${t.txn_date},${csvCell(t.description)},${csvCell(cat)},${t.direction},${t.amount}`;
   });
   return [header, ...rows].join("\n");
 }

@@ -30,7 +30,11 @@ export function cycleBounds(now: Date, day: number) {
   return { start, end: new Date(ey, em, Math.min(day, dim(ey, em))) };
 }
 
-export const sortReadings = (r: Reading[]) => [...r].sort((a, b) => a.t - b.t);
+/** Meter readings outside these years can't be real, and the per-day loops below would run for millions of days over them. */
+const MIN_READING_T = Date.UTC(2000, 0, 1), MAX_READING_T = Date.UTC(2100, 0, 1);
+export const plausibleReadingTime = (t: number) => Number.isFinite(t) && t >= MIN_READING_T && t < MAX_READING_T;
+
+export const sortReadings = (r: Reading[]) => r.filter((x) => plausibleReadingTime(x.t)).sort((a, b) => a.t - b.t);
 
 export function intervals(readings: Reading[]) {
   const r = sortReadings(readings);

@@ -49,6 +49,16 @@ function safeUrl(u) {
   }
 }
 
+const ASSET_IMG_HOSTS = new Set(["assets.coingecko.com", "coin-images.coingecko.com"]);
+
+/** Asset logos only ever come from CoinGecko. Any other host in a stored or imported ledger would learn when and from where it's viewed. */
+function safeAssetImg(u) {
+  const href = safeUrl(u);
+  if (!href) return "";
+  const p = new URL(href);
+  return p.protocol === "https:" && ASSET_IMG_HOSTS.has(p.hostname) && !p.username && !p.password ? href : "";
+}
+
 function toIsoDate(v) {
   if (typeof v !== "string" && !isNum(v)) return null;
   const ms = new Date(v).getTime();
@@ -68,7 +78,7 @@ function sanitizeAsset(a) {
     symbol,
     name: str(a.name, MAX_NAME),
     coingeckoId: typeof a.coingeckoId === "string" && COINGECKO_ID.test(a.coingeckoId) ? a.coingeckoId : null,
-    img: safeUrl(a.img) || null,
+    img: safeAssetImg(a.img) || null,
   };
 }
 
@@ -754,7 +764,7 @@ function rangeStats(ctx, R) {
 
 const LedgerEngine = {
   EPS, TX_TYPES,
-  makeId, safeUrl, isSafeId,
+  makeId, safeUrl, safeAssetImg, isSafeId,
   sanitizeAsset, sanitizeTransaction, sanitizeTransactions, sanitizeAssets, sanitizeFavorites,
   sanitizeSettings, sanitizeGoals, sanitizePrices, sanitizePriceHistory, sanitizeEquityHistory, sanitizeUi,
   sortChrono, applyTxn, replay, summarize, realizedBySell, computeClosedTradesAndAnalytics,

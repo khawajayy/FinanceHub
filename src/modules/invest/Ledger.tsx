@@ -62,7 +62,7 @@ export default function Ledger() {
 
   const exportJSON = () => {
     const { transactions, assets, settings, goals, favorites, dataUpdatedAt } = useInvest.getState();
-    downloadFile(`nexus-ledger-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify({ transactions, assets, settings, goals, favorites, dataUpdatedAt }, null, 2), "application/json");
+    downloadFile(`nexus-ledger-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify({ transactions, assets, settings: { ...settings, finnhubKey: "" }, goals, favorites, dataUpdatedAt }, null, 2), "application/json"); // backups get shared; the API key stays out
   };
   const importJSON = () => {
     const inp = document.createElement("input"); inp.type = "file"; inp.accept = "application/json,.json";
@@ -76,7 +76,8 @@ export default function Ledger() {
           if (!s || typeof s !== "object" || !Array.isArray(s.transactions)) throw new Error("not a ledger backup");
           if (!(await confirmDialog("Import backup", `Replace ALL current ledger data with this backup (${s.transactions.length} transactions)?`, { confirmText: "Replace", danger: true }))) return;
           const n = normalizeSynced(s);
-          replaceAll(n);
+          // A file never changes which API key this account uses: it could come from someone else.
+          replaceAll({ ...n, settings: { ...n.settings, finnhubKey: useInvest.getState().settings.finnhubKey } });
           toast(n.dropped ? `Imported · skipped ${n.dropped} invalid transaction(s)` : "Data imported", !!n.dropped);
           useInvest.getState().refreshPrices();
         } catch (e) { toast("Import failed: " + (e as Error).message, true); }

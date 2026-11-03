@@ -19,6 +19,8 @@ interface UiState {
   dismiss: (id: number) => void;
   setDialog: (d: DialogReq | null) => void;
   toggleTheme: () => void;
+  /** Cancel a pending dialog and drop toasts: their callbacks act on whichever account is current when clicked. */
+  resetSession: () => void;
 }
 
 let seq = 0;
@@ -40,6 +42,10 @@ export const useUi = create<UiState>((set, get) => ({
     document.documentElement.dataset.theme = theme;
     try { localStorage.setItem("nexus.theme", theme); } catch { /* private mode */ }
     set({ theme });
+  },
+  resetSession: () => {
+    get().dialog?.resolve(null);
+    set({ dialog: null, toasts: [] });
   },
 }));
 

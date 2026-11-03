@@ -97,7 +97,9 @@ service cloud.firestore {
       allow read, delete: if isOwner(uid);
       allow create, update: if isOwner(uid)
         && request.resource.data.keys().hasOnly(['v', 't'])
-        && request.resource.data.v is number && request.resource.data.t is number;
+        && request.resource.data.v is number && request.resource.data.t is number
+        && request.resource.data.t >= 946684800000 // year 2000; far-future times would stall the per-day usage charts
+        && request.resource.data.t <= request.time.toMillis() + 172800000;
     }
 
     match /power/{uid}/appliances/{id} {
