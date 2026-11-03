@@ -160,6 +160,88 @@ service cloud.firestore {
       allow create, update: if isOwner(uid) && validGoal(request.resource.data);
     }
 
+    // ---------- Garage ----------
+    function validDate(v) {
+      return v is string && v.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+    }
+    function optDate(v) {
+      return v == null || validDate(v);
+    }
+    function optNumber(v) {
+      return v == null || v is number;
+    }
+
+    match /garage/{uid}/vehicles/{id} {
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid)
+        && request.resource.data.keys().hasOnly(['name', 'kind', 'make', 'model', 'year', 'plate', 'fuelType', 'tankLitres', 'startOdo', 'createdAt'])
+        && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 60
+        && request.resource.data.kind in ['car', 'bike', 'other']
+        && request.resource.data.make is string && request.resource.data.make.size() <= 40
+        && request.resource.data.model is string && request.resource.data.model.size() <= 40
+        && optNumber(request.resource.data.year)
+        && request.resource.data.plate is string && request.resource.data.plate.size() <= 20
+        && request.resource.data.fuelType in ['petrol', 'diesel', 'hybrid', 'cng']
+        && optNumber(request.resource.data.tankLitres)
+        && request.resource.data.startOdo is number
+        && request.resource.data.createdAt is number;
+    }
+
+    match /garage/{uid}/fuel/{id} {
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid)
+        && request.resource.data.keys().hasOnly(['vehicleId', 'date', 'odo', 'litres', 'cost', 'full', 'station', 'createdAt'])
+        && request.resource.data.vehicleId is string
+        && validDate(request.resource.data.date)
+        && request.resource.data.odo is number && request.resource.data.odo >= 0
+        && request.resource.data.litres is number && request.resource.data.litres > 0
+        && request.resource.data.cost is number && request.resource.data.cost >= 0
+        && request.resource.data.full is bool
+        && request.resource.data.station is string && request.resource.data.station.size() <= 60
+        && request.resource.data.createdAt is number;
+    }
+
+    match /garage/{uid}/odometer/{id} {
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid)
+        && request.resource.data.keys().hasOnly(['vehicleId', 'date', 'odo', 'note', 'createdAt'])
+        && request.resource.data.vehicleId is string
+        && validDate(request.resource.data.date)
+        && request.resource.data.odo is number && request.resource.data.odo >= 0
+        && request.resource.data.note is string && request.resource.data.note.size() <= 200
+        && request.resource.data.createdAt is number;
+    }
+
+    match /garage/{uid}/service/{id} {
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid)
+        && request.resource.data.keys().hasOnly(['vehicleId', 'date', 'odo', 'title', 'cost', 'workshop', 'note', 'createdAt'])
+        && request.resource.data.vehicleId is string
+        && validDate(request.resource.data.date)
+        && optNumber(request.resource.data.odo)
+        && request.resource.data.title is string && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 80
+        && request.resource.data.cost is number && request.resource.data.cost >= 0
+        && request.resource.data.workshop is string && request.resource.data.workshop.size() <= 60
+        && request.resource.data.note is string && request.resource.data.note.size() <= 500
+        && request.resource.data.createdAt is number;
+    }
+
+    match /garage/{uid}/reminders/{id} {
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid)
+        && request.resource.data.keys().hasOnly(['vehicleId', 'title', 'kind', 'intervalKm', 'intervalMonths', 'lastDate', 'lastOdo', 'dueDate', 'dueOdo', 'createdAt'])
+        && request.resource.data.vehicleId is string
+        && request.resource.data.title is string && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 80
+        && request.resource.data.kind in ['service', 'document']
+        && optNumber(request.resource.data.intervalKm)
+        && optNumber(request.resource.data.intervalMonths)
+        && optDate(request.resource.data.lastDate)
+        && optNumber(request.resource.data.lastOdo)
+        && optDate(request.resource.data.dueDate)
+        && optNumber(request.resource.data.dueOdo)
+        && request.resource.data.createdAt is number;
+    }
+
     // Everything else is closed.
     match /{document=**} {
       allow read, write: if false;

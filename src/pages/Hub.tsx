@@ -12,6 +12,7 @@ import { useExpenses } from "@/stores/expenses";
 import { pkrRate, useInvest, valuationCtx } from "@/stores/invest";
 import { Arrow, AssetBadge, usePortfolio } from "@/modules/invest/common";
 import { PowerHubCard } from "@/modules/power/HubCard";
+import { GarageHubCard } from "@/modules/garage/HubCard";
 import { TasksHubCard } from "@/modules/tasks/HubCard";
 import { GoalsHubCard } from "@/modules/goals/HubCard";
 import { DailyLesson } from "@/modules/lessons/DailyLesson";
@@ -165,7 +166,10 @@ export default function Hub() {
         </Card>
       </div>
 
-      <PowerHubCard delay={0.23} />
+      <div className="grid gap-4 xl:grid-cols-2">
+        <PowerHubCard delay={0.23} />
+        <GarageHubCard delay={0.25} />
+      </div>
 
       <Card delay={0.26}>
         <CardHeader title="Recent activity" sub="Across expenses and investments" icon={<Activity size={16} />} />

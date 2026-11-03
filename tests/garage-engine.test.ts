@@ -1,0 +1,123 @@
+import { describe, expect, test } from "vitest";
+import {
+  addMonthsIso, advanceReminder, currentOdo, fuelByMonth, fuelSegments, fuelStats, kmPerDay, odoConflict, odoPoints, reminderStatus, runningCosts, vehicleInsights,
+  type FuelLog, type Reminder, type ServiceLog, type Vehicle,
+} from "../src/engine/garage-engine";
+
+let n = 0;
+const fill = (date: string, odo: number, litres: number, cost: number, full = true): FuelLog => ({ id: `f${++n}`, vehicleId: "v", date, odo, litres, cost, full, station: "", createdAt: n });
+const svc = (date: string, odo: number | null, cost: number): ServiceLog => ({ id: `s${++n}`, vehicleId: "v", date, odo, title: "Oil", cost, workshop: "", note: "", createdAt: n });
+const vehicle: Vehicle = { id: "v", name: "Passo", kind: "car", make: "", model: "", year: null, plate: "", fuelType: "petrol", tankLitres: 40, startOdo: 1000, createdAt: new Date(2026, 0, 1).getTime() };
+const rem = (p: Partial<Reminder>): Reminder => ({ id: "r", vehicleId: "v", title: "Oil", kind: "service", intervalKm: null, intervalMonths: null, lastDate: null, lastOdo: null, dueDate: null, dueOdo: null, createdAt: 0, ...p });
+
+describe("fuel average", () => {
+  test("measures full tank to full tank", () => {
+    const seg = fuelSegments([fill("2026-01-01", 1000, 30, 9000), fill("2026-01-10", 1400, 25, 7500)]);
+    expect(seg).toHaveLength(1);
+    expect(seg[0]).toMatchObject({ km: 400, litres: 25, kmpl: 16, cost: 7500 });
+  });
+
+  test("the first fill is only a baseline, and partial fills roll into the next full one", () => {
+    const seg = fuelSegments([
+      fill("2026-01-01", 1000, 10, 3000, false), // before any full tank: ignored
+      fill("2026-01-02", 1100, 30, 9000),
+      fill("2026-01-10", 1300, 10, 3000, false),
+      fill("2026-01-20", 1700, 30, 9000),
+    ]);
+    expect(seg).toHaveLength(1);
+    expect(seg[0]).toMatchObject({ km: 600, litres: 40, kmpl: 15, cost: 12000 });
+  });
+
+  test("average is distance-weighted, not a mean of means", () => {
+    const s = fuelStats([fill("2026-01-01", 0, 10, 100), fill("2026-01-02", 100, 10, 100), fill("2026-01-03", 1100, 50, 500)]);
+    expect(s.avgKmpl).toBeCloseTo(1100 / 60, 9); // mean of means would be 15
+    expect(s.bestKmpl).toBe(20);
+    expect(s.worstKmpl).toBe(10);
+    expect(s.lastKmpl).toBe(20);
+    expect(s.fuelCostPerKm).toBeCloseTo(600 / 1100, 9);
+    expect(s.avgPrice).toBe(10);
+  });
+
+  test("no average until two full tanks", () => {
+    expect(fuelStats([fill("2026-01-01", 1000, 30, 9000)]).avgKmpl).toBeNull();
+    expect(fuelStats([]).lastFill).toBeNull();
+  });
+
+  test("monthly spend keeps empty months", () => {
+    const m = fuelByMonth([fill("2026-09-05", 1, 1, 500), fill("2026-11-02", 2, 1, 700)], 3, "2026-11-03");
+    expect(m.map((x) => [x.key, x.cost])).toEqual([["2026-09", 500], ["2026-10", 0], ["2026-11", 700]]);
+  });
+});
+
+describe("odometer", () => {
+  test("combines every source and takes the highest reading", () => {
+    const pts = odoPoints(vehicle, [fill("2026-02-01", 2000, 1, 1)], [{ id: "o", vehicleId: "v", date: "2026-03-01", odo: 3000, note: "", createdAt: 0 }], [svc("2026-02-15", 2500, 1), svc("2026-02-20", null, 1)]);
+    expect(pts.map((p) => p.odo)).toEqual([1000, 2000, 2500, 3000]);
+    expect(currentOdo(pts)).toBe(3000);
+  });
+
+  test("driving rate needs a week of history", () => {
+    expect(kmPerDay([{ date: "2026-10-01", odo: 1000 }, { date: "2026-10-03", odo: 1100 }], "2026-10-05")).toBeNull();
+    expect(kmPerDay([{ date: "2026-10-01", odo: 1000 }, { date: "2026-10-11", odo: 1300 }], "2026-10-12")).toBe(30);
+  });
+
+  test("flags readings that would run the odometer backwards", () => {
+    const pts = [{ date: "2026-01-01", odo: 1000 }, { date: "2026-03-01", odo: 2000 }];
+    expect(odoConflict("2026-02-01", 1500, pts)).toBeNull();
+    expect(odoConflict("2026-02-01", 900, pts)).toContain("Lower");
+    expect(odoConflict("2026-02-01", 2100, pts)).toContain("Higher");
+    expect(odoConflict("2026-04-01", 2500, pts)).toBeNull();
+  });
+});
+
+describe("maintenance", () => {
+  const T = "2026-06-01";
+  test("due by whichever of km or date comes first", () => {
+    expect(reminderStatus(rem({ dueOdo: 9000, dueDate: "2027-01-01" }), 9500, null, T).status).toBe("overdue");
+    expect(reminderStatus(rem({ dueOdo: 90000, dueDate: "2026-05-01" }), 9500, null, T).status).toBe("overdue");
+    expect(reminderStatus(rem({ dueDate: "2026-06-20" }), 0, null, T).status).toBe("soon");
+    expect(reminderStatus(rem({ dueOdo: 10000, intervalKm: 5000 }), 9800, null, T).status).toBe("soon");
+    expect(reminderStatus(rem({ dueOdo: 20000, dueDate: "2027-01-01", intervalKm: 5000 }), 9500, null, T).status).toBe("ok");
+    expect(reminderStatus(rem({}), 9500, null, T).status).toBe("unset");
+  });
+
+  test("predicts the date from the driving rate", () => {
+    const s = reminderStatus(rem({ dueOdo: 11000, intervalKm: 5000 }), 10000, 50, T);
+    expect(s).toMatchObject({ kmLeft: 1000, effectiveDays: 20, predictedDate: "2026-06-21", status: "ok" });
+    expect(reminderStatus(rem({ dueOdo: 11000, intervalKm: 5000 }), 10000, 100, T).status).toBe("soon"); // 10 days away
+  });
+
+  test("interval used follows the more advanced of km and time", () => {
+    const s = reminderStatus(rem({ lastOdo: 5000, dueOdo: 10000, lastDate: "2026-01-01", dueDate: "2027-01-01" }), 9000, null, T);
+    expect(s.used).toBeCloseTo(0.8, 9);
+  });
+
+  test("marking done rolls the next due point forward", () => {
+    expect(advanceReminder(rem({ intervalKm: 5000, intervalMonths: 6 }), "2026-06-01", 12000)).toEqual({ lastDate: "2026-06-01", lastOdo: 12000, dueDate: "2026-12-01", dueOdo: 17000 });
+    expect(advanceReminder(rem({}), "2026-06-01", 12000)).toEqual({ lastDate: "2026-06-01", lastOdo: 12000, dueDate: null, dueOdo: null });
+    expect(advanceReminder(rem({ intervalKm: 5000, lastOdo: 100 }), "2026-06-01", null)).toMatchObject({ lastOdo: 100, dueOdo: null });
+  });
+
+  test("month arithmetic clamps to month length", () => {
+    expect(addMonthsIso("2026-01-31", 1)).toBe("2026-02-28");
+    expect(addMonthsIso("2026-11-15", 3)).toBe("2027-02-15");
+  });
+});
+
+describe("costs and insights", () => {
+  test("cost per km covers fuel and service", () => {
+    const c = runningCosts([fill("2026-01-01", 1000, 1, 3000)], [svc("2026-02-01", 2000, 2000)], [{ date: "2026-01-01", odo: 1000 }, { date: "2026-02-01", odo: 2000 }], "2026-03-01");
+    expect(c).toMatchObject({ fuelCost: 3000, serviceCost: 2000, total: 5000, km: 1000, perKm: 5 });
+  });
+
+  test("warns when recent fuel average drops", () => {
+    const fuel = [fill("2026-01-01", 0, 10, 1), fill("2026-01-02", 200, 10, 1), fill("2026-01-03", 400, 10, 1), fill("2026-01-04", 600, 10, 1), fill("2026-01-05", 720, 10, 1), fill("2026-01-06", 840, 10, 1), fill("2026-01-07", 960, 10, 1)];
+    const i = vehicleInsights({ fuel, service: [], reminders: [], tankLitres: null, odo: 960, perDay: null, today: "2026-01-08" });
+    expect(i.find((x) => x.tone === "warn")?.title).toContain("Fuel average down");
+  });
+
+  test("nudges towards setup when things are missing", () => {
+    const i = vehicleInsights({ fuel: [fill("2026-01-01", 0, 10, 1)], service: [], reminders: [], tankLitres: null, odo: 0, perDay: null, today: "2026-01-08" });
+    expect(i.map((x) => x.title)).toEqual(expect.arrayContaining(["Fuel average needs two full tanks", "No service reminders yet", "Track insurance and token tax"]));
+  });
+});

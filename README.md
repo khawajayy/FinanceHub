@@ -11,6 +11,7 @@ One personal hub: tasks and long-term goals, plus an app that combines **[Expens
 | **Settings** | From the profile menu: edit expense categories (rename, emoji, colour, reorder, add, remove; renames carry over to past transactions), bucket list, theme, account |
 | **Investments** | Crypto + stock ledger (deposit/withdraw/buy/sell/adjust), live prices (Binance → CoinGecko, Finnhub for stocks), P&L against original capital, equity/profit/return chart with a profit-loss band, holdings with break-even, watchlist, news, trade analytics with combined partial sells, fixed and step-up goals, JSON backup |
 | **Electricity** | Meter readings with per-day usage, current billing cycle with projected units and bill, daily-consumption and meter charts, closed cycles saved with the actual bill and estimate accuracy, appliance energy estimator, JSON import of an Electricity Guru backup |
+| **Garage** | Multiple vehicles; fill-up and mileage logs; fuel average measured full tank to full tank (partial fills roll forward), with best / worst / last tank and a trend chart; cost per km, monthly cost, tank range; maintenance and document reminders due by date or km (whichever comes first), showing last done and next due, with predicted dates from your driving rate; service history; rule-based insights such as a fuel-average drop; optional logging of costs to Expenses; reminders to Tasks; fuel CSV export |
 
 The accounting engine (`src/engine/ledger-engine.js`) and goal maths (`src/engine/goal-calc.js`) are ported line for line from CryptoTracker, and its original unit tests still run against them.
 
@@ -24,12 +25,13 @@ Everything runs on the **existing Firebase project** (`investmenttracker-b544e`)
 - `tasks/{uid}/items/*` holds to-dos (title, notes, priority, due date, list, subtasks, optional goal link).
 - `goals/{uid}/items/*` holds long-term goals (area, why, dates, metric, milestones, value log).
 - `power/{uid}` (tariff, billing day, unit label) and `power/{uid}/readings|appliances|cycles/*` hold electricity data. These start empty; to bring old data over, use **Export JSON** in the original Electricity Guru app, then **Readings → Import** here (readings and appliances).
+- `garage/{uid}/vehicles|fuel|odometer|service|reminders/*` holds vehicles and their logs. These start empty.
 - Prices, chart history and view preferences are cached per device in localStorage.
 - Firestore's offline cache means the app keeps working without a connection and syncs when you're back online.
 
 ## One-time setup
 
-1. **Deploy the new security rules**, which add the `expenses/`, `power/`, `tasks/` and `goals/` paths. Until you do this, writes to those are rejected:
+1. **Deploy the new security rules**, which add the `expenses/`, `power/`, `tasks/`, `goals/` and `garage/` paths. Until you do this, writes to those are rejected:
    ```bash
    npm install -g firebase-tools
    firebase login
@@ -60,7 +62,7 @@ npm run build      # typecheck + production build into dist/
 
 ```
 src/
-  engine/        pure logic + tests target: ledger-engine.js, goal-calc.js, expense-engine.ts, power-engine.ts, task-engine.ts, goal-engine.ts, lessons.ts
+  engine/        pure logic + tests target: ledger-engine.js, goal-calc.js, expense-engine.ts, power-engine.ts, task-engine.ts, goal-engine.ts, garage-engine.ts, lessons.ts
   lib/           firebase init, market data (prices/FX/search/news), formatting, demo data
   stores/        zustand stores: auth, expenses (Firestore), invest (Firestore + local), ui, actions
   components/    Shell (nav/backdrop), ui kit (cards, modals, animated numbers), charts
@@ -70,6 +72,7 @@ src/
     lessons/     Daily lesson card for the Hub
     goals/       Goals page, goal create/detail modal, life wheel, Hub card
     tasks/       Tasks page, task row + inline editor, quick add, Hub card
+    garage/      Vehicles overview, Logbook, Maintenance, add/edit forms, Hub card
     power/       Electricity usage dashboard, Readings, Billing cycles, Appliances, Hub card
   pages/         Hub, Login
 firestore.rules  security rules for both modules
