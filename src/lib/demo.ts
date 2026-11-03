@@ -50,6 +50,48 @@ export function demoExpenses(): { txns: ExpenseTxn[]; accounts: Account[]; bucke
   };
 }
 
+export function demoGarage() {
+  const D = 86400000;
+  const day = (ago: number) => { const x = new Date(now.getTime() - ago * D); return `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`; };
+  const created = now.getTime() - 200 * D;
+  const vehicles: import("@/engine/garage-engine").Vehicle[] = [
+    { id: "car", name: "Toyota Passo", kind: "car", make: "Toyota", model: "Passo", year: 2018, plate: "LEB-18-4471", fuelType: "petrol", tankLitres: 40, startOdo: 61200, createdAt: created },
+    { id: "bike", name: "Honda CD 70", kind: "bike", make: "Honda", model: "CD 70", year: 2021, plate: "LEZ-5521", fuelType: "petrol", tankLitres: 8.5, startOdo: 14300, createdAt: created },
+  ];
+  // [days ago, odometer, litres, full?]; the last few tanks are thirstier, which triggers the efficiency insight
+  const carFills: [number, number, number, boolean][] = [
+    [190, 61300, 32, true], [172, 61760, 29, true], [155, 62230, 28.5, true], [137, 62460, 15, false], [128, 62690, 13.5, true], [119, 63150, 28, true],
+    [110, 63620, 28.5, true], [92, 64080, 28, true], [74, 64540, 29, true], [56, 64980, 31, true], [38, 65400, 31.5, true], [20, 65810, 31, true], [3, 66220, 31, true],
+  ];
+  let k = 0;
+  const fuel: import("@/engine/garage-engine").FuelLog[] = carFills.map(([ago, odo, litres, full], i) => ({
+    id: `fl${++k}`, vehicleId: "car", date: day(ago), odo, litres, cost: Math.round(litres * (262 + i * 1.5)), full, station: i % 2 ? "PSO" : "Shell", createdAt: k,
+  }));
+  [[90, 14700, 6.5], [62, 15020, 6.4], [35, 15340, 6.6], [8, 15660, 6.3]].forEach(([ago, odo, litres]) => {
+    fuel.push({ id: `fl${++k}`, vehicleId: "bike", date: day(ago), odo, litres, cost: Math.round(litres * 270), full: true, station: "PSO", createdAt: k });
+  });
+  const odometer: import("@/engine/garage-engine").OdoLog[] = [
+    { id: "od1", vehicleId: "car", date: day(1), odo: 66270, note: "Weekend trip", createdAt: 1 },
+  ];
+  const service: import("@/engine/garage-engine").ServiceLog[] = [
+    { id: "sv1", vehicleId: "car", date: day(150), odo: 62400, title: "Engine oil & filter", cost: 9500, workshop: "Toyota Motors", note: "5W-30", createdAt: 1 },
+    { id: "sv2", vehicleId: "car", date: day(60), odo: 64900, title: "Headlights + oxygen sensor", cost: 18100, workshop: "Local workshop", note: "", createdAt: 2 },
+    { id: "sv3", vehicleId: "bike", date: day(70), odo: 14950, title: "Engine oil", cost: 1200, workshop: "", note: "", createdAt: 3 },
+  ];
+  const rem = (id: string, vehicleId: string, title: string, kind: "service" | "document", o: Partial<import("@/engine/garage-engine").Reminder>) =>
+    ({ id, vehicleId, title, kind, intervalKm: null, intervalMonths: null, lastDate: null, lastOdo: null, dueDate: null, dueOdo: null, createdAt: 1, ...o });
+  const future = (d: number) => day(-d);
+  const reminders: import("@/engine/garage-engine").Reminder[] = [
+    rem("r1", "car", "Engine oil & filter", "service", { intervalKm: 5000, intervalMonths: 6, lastDate: day(150), lastOdo: 62400, dueDate: future(32), dueOdo: 67400 }),
+    rem("r2", "car", "Tyre rotation & balancing", "service", { intervalKm: 10000, lastDate: day(190), lastOdo: 56000, dueOdo: 66000 }),
+    rem("r3", "car", "AC service", "service", { intervalMonths: 12, lastDate: day(120), dueDate: future(245) }),
+    rem("r4", "car", "Insurance renewal", "document", { intervalMonths: 12, lastDate: day(345), dueDate: future(20) }),
+    rem("r5", "car", "Token tax", "document", { intervalMonths: 12, lastDate: day(150), dueDate: future(215) }),
+    rem("r6", "bike", "Engine oil", "service", { intervalKm: 2000, lastDate: day(70), lastOdo: 14950, dueOdo: 16950 }),
+  ];
+  return { vehicles, fuel, odometer, service, reminders, selectedId: "car" };
+}
+
 export function demoGoals() {
   const d = (months: number, days = 0) => { const x = new Date(now.getFullYear(), now.getMonth() + months, now.getDate() + days); return `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`; };
   const ago = (days: number) => Date.now() - days * 86400000;

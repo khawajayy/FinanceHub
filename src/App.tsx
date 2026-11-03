@@ -9,6 +9,11 @@ import { useInvest } from "@/stores/invest";
 import { usePower } from "@/stores/power";
 import { useTasks } from "@/stores/tasks";
 import { useGoals } from "@/stores/goals";
+import { useGarage } from "@/stores/garage";
+import Garage from "@/modules/garage/Garage";
+import GarageLogbook from "@/modules/garage/Logbook";
+import GarageMaintenance from "@/modules/garage/Maintenance";
+import { GarageModals } from "@/modules/garage/Modals";
 import LifeGoals from "@/modules/goals/Goals";
 import { GoalModal } from "@/modules/goals/GoalModal";
 import Tasks from "@/modules/tasks/Tasks";
@@ -48,8 +53,8 @@ export default function App() {
 
   // Start / stop the Firestore subscriptions with the signed-in user.
   useEffect(() => {
-    if (user) { useExpenses.getState().start(user.uid); useInvest.getState().start(user.uid); usePower.getState().start(user.uid); useTasks.getState().start(user.uid); useGoals.getState().start(user.uid); }
-    else { useExpenses.getState().stop(); useInvest.getState().stop(); usePower.getState().stop(); useTasks.getState().stop(); useGoals.getState().stop(); }
+    if (user) { useExpenses.getState().start(user.uid); useInvest.getState().start(user.uid); usePower.getState().start(user.uid); useTasks.getState().start(user.uid); useGoals.getState().start(user.uid); useGarage.getState().start(user.uid); }
+    else { useExpenses.getState().stop(); useInvest.getState().stop(); usePower.getState().stop(); useTasks.getState().stop(); useGoals.getState().stop(); useGarage.getState().stop(); }
   }, [user]);
 
   return (
@@ -78,6 +83,9 @@ export default function App() {
               <Route path="power/readings" element={<PowerReadings />} />
               <Route path="power/cycles" element={<PowerCycles />} />
               <Route path="power/appliances" element={<PowerAppliances />} />
+              <Route path="garage" element={<Garage />} />
+              <Route path="garage/logbook" element={<GarageLogbook />} />
+              <Route path="garage/maintenance" element={<GarageMaintenance />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Route>
           </Routes>
@@ -85,6 +93,7 @@ export default function App() {
           <InvestTxnModal />
           <PFCalculator />
           <GoalModal />
+          <GarageModals />
         </HashRouter>
       )}
       <DialogHost />
