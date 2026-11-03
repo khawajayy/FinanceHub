@@ -5,15 +5,12 @@ import {
   FUEL_TYPES, REMINDER_PRESETS, addMonthsIso, currentOdo, isoDay, odoConflict, odoPoints, sortFuel,
   type FuelType, type Reminder, type Vehicle, type VehicleKind,
 } from "@/engine/garage-engine";
-import { cx, fmtAmtStr, stripNum } from "@/lib/format";
+import { cx, fmtAmtStr, fmtRs, stripNum } from "@/lib/format";
 import { useExpenses } from "@/stores/expenses";
 import { useGarage } from "@/stores/garage";
 import { confirmDialog, toast } from "@/stores/ui";
 import { fmtKm, useVehicleData } from "./common";
 
-const EXP_KEY = "nexus.garage.toExpense";
-const readExp = () => { try { return localStorage.getItem(EXP_KEY) !== "0"; } catch { return true; } };
-const writeExp = (v: boolean) => { try { localStorage.setItem(EXP_KEY, v ? "1" : "0"); } catch { /* private mode */ } };
 const optNum = (s: string) => { const n = stripNum(s); return Number.isFinite(n) ? n : null; };
 const numStr = (n: number | null | undefined) => (n == null ? "" : fmtAmtStr(n));
 
@@ -38,11 +35,22 @@ function useLogExpense() {
   };
 }
 
-function ExpenseToggle({ on, set }: { on: boolean; set: (v: boolean) => void }) {
+/**
+ * Opt-in per entry: always starts off and isn't remembered, so nothing reaches
+ * Expenses unless it's switched on for this entry (e.g. fuel on a company card).
+ */
+function ExpenseToggle({ on, set, amount }: { on: boolean; set: (v: boolean) => void; amount: number }) {
   return (
-    <label className="flex cursor-pointer items-center gap-2 text-xs text-muted">
-      <input type="checkbox" checked={on} onChange={(e) => { set(e.target.checked); writeExp(e.target.checked); }} /> Also add to Expenses
-    </label>
+    <div className={cx("flex items-center gap-3 rounded-2xl p-3 ring-1 transition-colors", on ? "bg-cyan/10 ring-cyan/30" : "bg-line/[.03] ring-line/5")}>
+      <button type="button" role="switch" aria-checked={on} aria-label="Add this cost to my Expenses" onClick={() => set(!on)}
+        className={cx("relative h-6 w-11 shrink-0 rounded-full transition-colors", on ? "bg-cyan" : "bg-line/20")}>
+        <span className={cx("absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all", on ? "left-[22px]" : "left-0.5")} />
+      </button>
+      <div className="min-w-0 text-sm">
+        <div className="font-semibold">Add to my Expenses</div>
+        <div className="text-[11.5px] text-muted">{on ? (amount > 0 ? `${fmtRs(amount)} will be logged under Transport.` : "The cost will be logged under Transport.") : "Off: stays in Garage only, e.g. paid by a company fuel card."}</div>
+      </div>
+    </div>
   );
 }
 
@@ -111,7 +119,7 @@ function FuelForm({ id, onClose }: { id?: string; onClose: () => void }) {
   const [total, setTotal] = useState(numStr(editing?.cost));
   const [full, setFull] = useState(editing?.full ?? true);
   const [station, setStation] = useState(editing?.station || "");
-  const [toExp, setToExp] = useState(readExp);
+  const [toExp, setToExp] = useState(false);
 
   // any two of litres / price / total give the third
   const sync = (edited: "litres" | "price" | "total", l0 = litres, p0 = price, t0 = total) => {
@@ -145,7 +153,8 @@ function FuelForm({ id, onClose }: { id?: string; onClose: () => void }) {
     if (!(nTotal >= 0)) { toast("Enter the total cost", true); return; }
     saveFuel({ vehicleId: v.id, date, odo: nOdo, litres: nLit, cost: nTotal, full, station: station.trim().slice(0, 60) }, id);
     if (!editing && toExp) logExpense(`Fuel - ${v.name}`, date, nTotal);
-    toast(editing ? "Fill-up updated" : preview ? `Logged · ${preview.kmpl.toFixed(1)} km/l this tank` : "Fill-up logged");
+    const addedToExpenses = !editing && toExp && nTotal > 0 ? " · added to Expenses" : "";
+    toast(editing ? "Fill-up updated" : (preview ? `Logged · ${preview.kmpl.toFixed(1)} km/l this tank` : "Fill-up logged") + addedToExpenses);
     onClose();
   };
 
@@ -167,6 +176,7 @@ function FuelForm({ id, onClose }: { id?: string; onClose: () => void }) {
           <p className="mt-1.5 text-[11.5px] text-muted">Average is measured between full tanks; partial fills roll into the next one.</p>
         </div>
         <Field label="Station (optional)"><input className="input" value={station} onChange={(e) => setStation(e.target.value)} maxLength={60} placeholder="PSO, Shell…" /></Field>
+        {!editing && <ExpenseToggle on={toExp} set={setToExp} amount={Number.isFinite(nTotal) ? nTotal : 0} />}
         {preview && (
           <div className="rounded-2xl bg-gradient-to-r from-cyan/10 to-violet/10 px-4 py-3 text-sm ring-1 ring-cyan/15">
             This tank: <b className="num">{preview.kmpl.toFixed(1)} km/l</b> <span className="text-muted">over {fmtKm(preview.km)}</span>
@@ -174,7 +184,7 @@ function FuelForm({ id, onClose }: { id?: string; onClose: () => void }) {
           </div>
         )}
       </div>
-      <Foot onCancel={onClose} onSave={save} saveLabel={editing ? "Save changes" : "Log fill-up"} extra={!editing && <ExpenseToggle on={toExp} set={setToExp} />} />
+      <Foot onCancel={onClose} onSave={save} saveLabel={editing ? "Save changes" : "Log fill-up"} />
     </>
   );
 }
@@ -232,7 +242,7 @@ function ServiceForm({ id, reminderId, onClose }: { id?: string; reminderId?: st
   const [cost, setCost] = useState(numStr(editing?.cost));
   const [workshop, setWorkshop] = useState(editing?.workshop || "");
   const [note, setNote] = useState(editing?.note || "");
-  const [toExp, setToExp] = useState(readExp);
+  const [toExp, setToExp] = useState(false);
   const pts = useMemo(() => odoPoints(v, fuel.filter((x) => x.vehicleId === v.id), odometer.filter((x) => x.vehicleId === v.id), service.filter((x) => x.vehicleId === v.id && x.id !== id)), [v, fuel, odometer, service, id]);
   const nOdo = odo.trim() ? stripNum(odo) : null;
   const conflict = nOdo != null && Number.isFinite(nOdo) && date ? odoConflict(date, nOdo, pts) : null;
@@ -273,8 +283,9 @@ function ServiceForm({ id, reminderId, onClose }: { id?: string; reminderId?: st
           </Field>
         )}
         <Field label="Notes (optional)"><textarea className="input min-h-[60px] resize-y text-[13px]" value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} placeholder="Oil grade, parts replaced…" /></Field>
+        {!editing && <ExpenseToggle on={toExp} set={setToExp} amount={cost.trim() ? stripNum(cost) || 0 : 0} />}
       </div>
-      <Foot onCancel={onClose} onSave={save} saveLabel={editing ? "Save changes" : "Log service"} extra={!editing && <ExpenseToggle on={toExp} set={setToExp} />} />
+      <Foot onCancel={onClose} onSave={save} saveLabel={editing ? "Save changes" : "Log service"} />
     </>
   );
 }
