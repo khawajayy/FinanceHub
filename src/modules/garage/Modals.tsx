@@ -2,7 +2,7 @@ import { CarFront, Fuel, Gauge as GaugeIcon, Trash2, Wrench, BellRing } from "lu
 import { useMemo, useState, type ReactNode } from "react";
 import { AmountInput, Field, Modal, Segmented, Warn } from "@/components/ui";
 import {
-  FUEL_TYPES, REMINDER_PRESETS, addMonthsIso, currentOdo, isoDay, odoConflict, odoPoints, sortFuel,
+  FUEL_TYPES, REMINDER_PRESETS, addMonthsIso, currentOdo, isoDay, odoConflict, odoPoints, partialEstimates, sortFuel,
   type FuelType, type Reminder, type Vehicle, type VehicleKind,
 } from "@/engine/garage-engine";
 import { cx, fmtAmtStr, fmtRs, stripNum } from "@/lib/format";
@@ -118,6 +118,7 @@ function FuelForm({ id, onClose }: { id?: string; onClose: () => void }) {
   const [price, setPrice] = useState(editing && editing.litres > 0 ? fmtAmtStr(+(editing.cost / editing.litres).toFixed(2)) : data.stats.lastPrice ? fmtAmtStr(+data.stats.lastPrice.toFixed(2)) : "");
   const [total, setTotal] = useState(numStr(editing?.cost));
   const [full, setFull] = useState(editing?.full ?? true);
+  const [tankPct, setTankPct] = useState<number | null>(editing?.tankPct ?? null);
   const [station, setStation] = useState(editing?.station || "");
   const [toExp, setToExp] = useState(false);
 
@@ -145,13 +146,21 @@ function FuelForm({ id, onClose }: { id?: string; onClose: () => void }) {
     return km > 0 ? { km, kmpl: km / (nLit + partial) } : null;
   }, [fuel, full, nOdo, nLit, v.id, id]);
 
+  // rough km/l for a partial fill, from the tank level
+  const partialPreview = useMemo(() => {
+    if (full || tankPct == null || !Number.isFinite(nOdo) || !(nLit > 0)) return null;
+    const others = fuel.filter((x) => x.vehicleId === v.id && x.id !== id);
+    const draft = { id: "draft", vehicleId: v.id, date, odo: nOdo, litres: nLit, cost: 0, full: false, station: "", createdAt: Date.now(), tankPct };
+    return partialEstimates([...others, draft], v.tankLitres).get("draft") ?? null;
+  }, [fuel, full, tankPct, nOdo, nLit, v.id, v.tankLitres, id, date]);
+
   const save = () => {
     if (!date) { toast("Pick a date", true); return; }
     if (!(nOdo >= 0)) { toast("Enter the odometer reading", true); return; }
     if (conflict) { toast(`Odometer can't go backwards. ${conflict}`, true); return; }
     if (!(nLit > 0)) { toast("Enter how many litres", true); return; }
     if (!(nTotal >= 0)) { toast("Enter the total cost", true); return; }
-    saveFuel({ vehicleId: v.id, date, odo: nOdo, litres: nLit, cost: nTotal, full, station: station.trim().slice(0, 60) }, id);
+    saveFuel({ vehicleId: v.id, date, odo: nOdo, litres: nLit, cost: nTotal, full, tankPct: full ? null : tankPct, station: station.trim().slice(0, 60) }, id);
     if (!editing && toExp) logExpense(`Fuel - ${v.name}`, date, nTotal);
     const addedToExpenses = !editing && toExp && nTotal > 0 ? " · added to Expenses" : "";
     toast(editing ? "Fill-up updated" : (preview ? `Logged · ${preview.kmpl.toFixed(1)} km/l this tank` : "Fill-up logged") + addedToExpenses);
@@ -175,8 +184,32 @@ function FuelForm({ id, onClose }: { id?: string; onClose: () => void }) {
           <Segmented id="ffull" className="w-full" value={full ? "full" : "partial"} onChange={(x) => setFull(x === "full")} options={[{ value: "full", label: "⛽ Filled to full" }, { value: "partial", label: "Partial fill" }]} />
           <p className="mt-1.5 text-[11.5px] text-muted">Average is measured between full tanks; partial fills roll into the next one.</p>
         </div>
+        {!full && (
+          <div className="rounded-2xl bg-line/[.03] p-3 ring-1 ring-line/5">
+            <div className="flex items-baseline gap-2">
+              <span className="field-label !mb-0">Tank level after this fill</span>
+              <b className="num ml-auto text-sm">{tankPct == null ? <span className="font-normal text-muted">Not set</span> : `${tankPct}%`}</b>
+              {tankPct != null && v.tankLitres && <span className="num text-[11px] text-muted">≈ {((tankPct / 100) * v.tankLitres).toFixed(1)} L</span>}
+            </div>
+            <input type="range" min={0} max={100} step={1} value={tankPct ?? 50} onChange={(e) => setTankPct(+e.target.value)} className="mt-2 w-full" aria-label="Tank level after this fill, percent" />
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              {[25, 50, 75, 90].map((p) => (
+                <button key={p} type="button" onClick={() => setTankPct(p)} className={cx("chip !normal-case !tracking-normal transition", tankPct === p && "!bg-cyan/15 !text-cyan ring-1 ring-cyan/30")}>{p}%</button>
+              ))}
+              {tankPct != null && <button type="button" onClick={() => setTankPct(null)} className="chip !normal-case !tracking-normal">Clear</button>}
+            </div>
+            <p className="mt-1.5 text-[11.5px] text-muted">
+              {v.tankLitres ? "Optional. Read it off your fuel gauge to get a rough km/l for this fill." : "Add a tank size to this vehicle to get a rough km/l for this fill."}
+            </p>
+          </div>
+        )}
         <Field label="Station (optional)"><input className="input" value={station} onChange={(e) => setStation(e.target.value)} maxLength={60} placeholder="PSO, Shell…" /></Field>
         {!editing && <ExpenseToggle on={toExp} set={setToExp} amount={Number.isFinite(nTotal) ? nTotal : 0} />}
+        {partialPreview && (
+          <div className="rounded-2xl bg-gradient-to-r from-cyan/10 to-violet/10 px-4 py-3 text-sm ring-1 ring-cyan/15">
+            Estimate: <b className="num">≈ {partialPreview.kmpl.toFixed(1)} km/l</b> <span className="text-muted">over {fmtKm(partialPreview.km)}, from the tank level</span>
+          </div>
+        )}
         {preview && (
           <div className="rounded-2xl bg-gradient-to-r from-cyan/10 to-violet/10 px-4 py-3 text-sm ring-1 ring-cyan/15">
             This tank: <b className="num">{preview.kmpl.toFixed(1)} km/l</b> <span className="text-muted">over {fmtKm(preview.km)}</span>

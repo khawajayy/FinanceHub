@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { collection, doc, onSnapshot, writeBatch, type Unsubscribe } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { DEMO, demoGarage } from "@/lib/demo";
-import { advanceReminder, type FuelLog, type OdoLog, type Reminder, type ServiceLog, type Vehicle } from "@/engine/garage-engine";
+import { advanceReminder, type FuelImportRow, type FuelLog, type OdoLog, type Reminder, type ServiceLog, type Vehicle } from "@/engine/garage-engine";
 import { toast } from "./ui";
 
 /*
@@ -41,6 +41,9 @@ interface GarageState {
   saveVehicle: (v: Omit<Vehicle, "id" | "createdAt">, id?: string) => string;
   deleteVehicle: (id: string) => void;
   saveFuel: (f: Omit<FuelLog, "id" | "createdAt">, id?: string) => void;
+  /** Adds many fill-ups in one go; returns their ids so the import can be undone. */
+  importFuel: (vehicleId: string, rows: FuelImportRow[]) => string[];
+  removeFuelMany: (ids: string[]) => void;
   saveOdo: (o: Omit<OdoLog, "id" | "createdAt">, id?: string) => void;
   saveReminder: (r: Omit<Reminder, "id" | "createdAt">, id?: string) => void;
   /** Saves a service record; with `reminderId` it also rolls that reminder's next due point forward. */
@@ -122,6 +125,13 @@ export const useGarage = create<GarageState>((set, get) => {
     },
 
     saveFuel: (f, id) => commit([{ coll: "fuel", id: id || newId(), data: { ...f, createdAt: createdAtOf(get().fuel, id) } }]),
+    importFuel: (vehicleId, rows) => {
+      const now = Date.now();
+      const changes: Change[] = rows.map((r, i) => ({ coll: "fuel", id: newId(), data: { ...r, vehicleId, createdAt: now + i } }));
+      commit(changes);
+      return changes.map((c) => c.id);
+    },
+    removeFuelMany: (ids) => commit(ids.map((id) => ({ coll: "fuel" as const, id, data: null }))),
     saveOdo: (o, id) => commit([{ coll: "odometer", id: id || newId(), data: { ...o, createdAt: createdAtOf(get().odometer, id) } }]),
     saveReminder: (r, id) => commit([{ coll: "reminders", id: id || newId(), data: { ...r, createdAt: createdAtOf(get().reminders, id) } }]),
 

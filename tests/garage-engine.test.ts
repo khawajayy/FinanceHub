@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
-  addMonthsIso, advanceReminder, currentOdo, fuelByMonth, fuelSegments, fuelStats, kmPerDay, odoConflict, odoPoints, reminderStatus, runningCosts, vehicleInsights,
+  addMonthsIso, advanceReminder, currentOdo, fuelByMonth, fuelSegments, fuelStats, kmPerDay, odoConflict, odoPoints, parseFuelCsv, partialEstimates, planFuelImport, reminderStatus, runningCosts, vehicleInsights,
   type FuelLog, type Reminder, type ServiceLog, type Vehicle,
 } from "../src/engine/garage-engine";
 
@@ -46,6 +46,44 @@ describe("fuel average", () => {
   test("monthly spend keeps empty months", () => {
     const m = fuelByMonth([fill("2026-09-05", 1, 1, 500), fill("2026-11-02", 2, 1, 700)], 3, "2026-11-03");
     expect(m.map((x) => [x.key, x.cost])).toEqual([["2026-09", 500], ["2026-10", 0], ["2026-11", 700]]);
+  });
+});
+
+describe("partial fills with a tank level", () => {
+  const partial = (date: string, odo: number, litres: number, tankPct: number | null) => ({ ...fill(date, odo, litres, 1, false), tankPct });
+
+  test("estimates km/l from tank levels, the way the user's previous app does", () => {
+    const logs = [fill("2026-09-19", 61599, 27.78, 1), partial("2026-09-24", 61894, 19.639, 91)];
+    const e = partialEstimates(logs, 30).get(logs[1].id)!;
+    expect(e.km).toBe(295);
+    expect(e.litres).toBeCloseTo(22.339, 3); // 30 + 19.639 - 27.3
+    expect(e.kmpl).toBeCloseTo(13.21, 2);
+  });
+
+  test("chains from one partial level to the next", () => {
+    const logs = [fill("2026-01-01", 0, 30, 1), partial("2026-01-05", 200, 10, 50), partial("2026-01-09", 300, 5, 40)];
+    const e = partialEstimates(logs, 30);
+    expect(e.get(logs[1].id)?.litres).toBeCloseTo(25, 9); // 30 + 10 - 15
+    expect(e.get(logs[2].id)?.litres).toBeCloseTo(8, 9); // 15 + 5 - 12
+  });
+
+  test("a partial fill with no level carries its litres to the next known level", () => {
+    const logs = [fill("2026-01-01", 0, 30, 1), partial("2026-01-05", 100, 5, null), partial("2026-01-09", 300, 5, 50)];
+    const e = partialEstimates(logs, 30);
+    expect(e.has(logs[1].id)).toBe(false);
+    expect(e.get(logs[2].id)).toMatchObject({ km: 300, litres: 25 }); // 30 + 5 + 5 - 15
+  });
+
+  test("needs a tank size and a known starting level", () => {
+    const first = partial("2026-01-05", 100, 5, 50);
+    expect(partialEstimates([fill("2026-01-01", 0, 30, 1), first], null).size).toBe(0);
+    expect(partialEstimates([first], 30).size).toBe(0);
+  });
+
+  test("the fuel average still comes only from full tanks", () => {
+    const logs = [fill("2026-01-01", 0, 30, 1), partial("2026-01-05", 200, 10, 90), fill("2026-01-09", 400, 20, 1)];
+    expect(fuelStats(logs).avgKmpl).toBeCloseTo(400 / 30, 9);
+    expect(fuelStats(logs).segments).toHaveLength(1);
   });
 });
 
@@ -101,6 +139,54 @@ describe("maintenance", () => {
   test("month arithmetic clamps to month length", () => {
     expect(addMonthsIso("2026-01-31", 1)).toBe("2026-02-28");
     expect(addMonthsIso("2026-11-15", 3)).toBe("2027-02-15");
+  });
+});
+
+describe("fuel CSV import", () => {
+  const HEAD = "Date,Odometer (km),Litres,Cost (Rs),Rs per litre,Full tank,Station";
+
+  test("reads the export format, including quotes, commas and Windows line endings", () => {
+    const { rows, errors } = parseFuelCsv(`${HEAD}\r\n2026-01-01,"1,000",30,"9,000.50",300,yes,"PSO, Main ""Blvd"""\r\n2026-01-10,1400,25,7500,300,no,\r\n`);
+    expect(errors).toEqual([]);
+    expect(rows).toEqual([
+      { date: "2026-01-01", odo: 1000, litres: 30, cost: 9000.5, full: true, tankPct: null, station: 'PSO, Main "Blvd"' },
+      { date: "2026-01-10", odo: 1400, litres: 25, cost: 7500, full: false, tankPct: null, station: "" },
+    ]);
+  });
+
+  test("column order doesn't matter, and cost can come from price", () => {
+    const { rows } = parseFuelCsv("Litres,Rs per litre,Date,Odometer\n10,250.5,2026-02-01,500");
+    expect(rows[0]).toMatchObject({ date: "2026-02-01", odo: 500, litres: 10, cost: 2505, full: true });
+  });
+
+  test("reports bad lines with their line number instead of guessing", () => {
+    const { rows, errors } = parseFuelCsv(`${HEAD}\n2026-13-45,1000,30,9000,,yes,\n2026-01-02,abc,30,9000,,yes,\n2026-01-03,1000,0,9000,,yes,\n2026-01-04,1000,30,,,yes,\n2026-01-05,1000,30,9000,,maybe,\n\n2026-01-06,1000,30,9000,,no,`);
+    expect(errors.map((e) => e.line)).toEqual([2, 3, 4, 5, 6]);
+    expect(rows.map((r) => r.date)).toEqual(["2026-01-06"]);
+    expect(parseFuelCsv("name,value\na,b").errors[0].message).toContain("Expected columns");
+  });
+
+  test("reads tank % for partial fills, ignores it on full tanks, rejects nonsense", () => {
+    const h = "Date,Odometer,Litres,Cost,Full tank,Tank %";
+    const { rows, errors } = parseFuelCsv(`${h}\n2026-01-01,1,1,1,no,81\n2026-01-02,2,1,1,no,75%\n2026-01-03,3,1,1,yes,50\n2026-01-04,4,1,1,no,\n2026-01-05,5,1,1,no,120`);
+    expect(rows.map((r) => r.tankPct)).toEqual([81, 75, null, null]);
+    expect(errors).toEqual([{ line: 6, message: 'Tank % must be 0-100, got "120".' }]);
+  });
+
+  test("skips what's already logged and anything that would run the odometer backwards", () => {
+    const row = (date: string, odo: number) => ({ date, odo, litres: 10, cost: 100, full: true, tankPct: null, station: "" });
+    const existing = [fill("2026-03-01", 2000, 1, 1)];
+    const plan = planFuelImport([row("2026-04-01", 3000), row("2026-03-01", 2000), row("2026-02-01", 2500), row("2026-02-15", 1500), row("2026-03-15", 2900), row("2026-03-20", 2800)], existing, [{ date: "2026-03-01", odo: 2000 }]);
+    expect(plan.duplicates.map((r) => r.odo)).toEqual([2000]);
+    expect(plan.conflicts.map((c) => c.row.odo)).toEqual([2500, 2800]);
+    expect(plan.toAdd.map((r) => r.odo)).toEqual([1500, 2900, 3000]); // oldest first
+  });
+
+  test("importing the same file twice adds nothing", () => {
+    const row = { date: "2026-04-01", odo: 3000, litres: 10, cost: 100, full: true, tankPct: null, station: "" };
+    const first = planFuelImport([row], [], []);
+    expect(first.toAdd).toHaveLength(1);
+    expect(planFuelImport([row], [fill("2026-04-01", 3000, 10, 100)], [{ date: "2026-04-01", odo: 3000 }]).toAdd).toHaveLength(0);
   });
 });
 
