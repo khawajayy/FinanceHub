@@ -344,7 +344,7 @@ export function parseFuelCsv(text: string) {
     else if (!(cost >= 0)) errors.push({ line, message: "Invalid cost." });
     else if (![...YES, ...NO].includes(fullRaw)) errors.push({ line, message: `Unclear full-tank value "${fullRaw}" (use yes or no).` });
     else if (tankPct != null && !(tankPct >= 0 && tankPct <= 100)) errors.push({ line, message: `Tank % must be 0-100, got "${tankRaw}".` });
-    else out.push({ date, odo, litres, cost, full: YES.includes(fullRaw), tankPct: YES.includes(fullRaw) ? null : tankPct, station: c.station >= 0 ? (r[c.station] || "").trim().slice(0, 60) : "" });
+    else out.push({ date, odo, litres, cost, full: YES.includes(fullRaw), tankPct: YES.includes(fullRaw) ? null : tankPct, station: c.station >= 0 ? (r[c.station] || "").trim().replace(/^'(?=[=+\-@])/, "").slice(0, 60) : "" }); // drops the ' our own export adds
   });
   return { rows: out, errors };
 }

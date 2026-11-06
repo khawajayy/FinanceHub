@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { collection, doc, onSnapshot, setDoc, writeBatch, type Unsubscribe } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { DEMO, demoPower } from "@/lib/demo";
-import { DEFAULT_POWER_SETTINGS, type Appliance, type Cycle, type PowerSettings, type Reading } from "@/engine/power-engine";
+import { DEFAULT_POWER_SETTINGS, plausibleReadingTime, type Appliance, type Cycle, type PowerSettings, type Reading } from "@/engine/power-engine";
 import { toast } from "./ui";
 
 /*
@@ -138,7 +138,7 @@ export const usePower = create<PowerState>((set, get) => {
       const ops: Op[] = [];
       let nr = 0, na = 0;
       if (Array.isArray(d.readings)) for (const x of d.readings.slice(0, 20000)) {
-        if (x && fin(x.v) && fin(x.t)) { ops.push({ kind: "set", coll: "readings", id: newId(), data: { v: x.v, t: x.t } }); nr++; }
+        if (x && fin(x.v) && fin(x.t) && plausibleReadingTime(x.t) && x.t <= Date.now() + 86400000) { ops.push({ kind: "set", coll: "readings", id: newId(), data: { v: x.v, t: x.t } }); nr++; }
       }
       if (Array.isArray(d.appliances)) for (const x of d.appliances.slice(0, 500)) {
         if (x && typeof x.name === "string" && x.name.trim() && fin(x.watts) && fin(x.hours)) {

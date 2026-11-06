@@ -1,6 +1,7 @@
 import { Download, Fuel, Gauge as GaugeIcon, Pencil, Plus, Trash2, Upload } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Card, CardHeader, Empty, Segmented, Skeleton, Tag } from "@/components/ui";
+import { csvCell } from "@/engine/expense-engine";
 import { parseFuelCsv, partialEstimates, planFuelImport } from "@/engine/garage-engine";
 import { cx, downloadFile, fmtRs } from "@/lib/format";
 import { useGarage } from "@/stores/garage";
@@ -24,7 +25,7 @@ export default function Logbook() {
   const exportCsv = () => {
     if (!v || !fuel.length) { toast("No fill-ups to export", true); return; }
     const lines = ["Date,Odometer (km),Litres,Cost (Rs),Rs per litre,Full tank,Tank %,Station"];
-    for (const f of fuel) lines.push(`${f.date},${f.odo},${f.litres},${f.cost},${(f.cost / f.litres).toFixed(2)},${f.full ? "yes" : "no"},${f.tankPct ?? ""},"${f.station.replace(/"/g, '""')}"`);
+    for (const f of fuel) lines.push(`${f.date},${f.odo},${f.litres},${f.cost},${(f.cost / f.litres).toFixed(2)},${f.full ? "yes" : "no"},${f.tankPct ?? ""},${csvCell(f.station)}`);
     downloadFile(`fuel-log-${v.name.replace(/[^\w-]+/g, "_")}.csv`, lines.join("\n"), "text/csv;charset=utf-8;");
     toast("CSV exported");
   };

@@ -20,6 +20,8 @@ interface ActionsState {
   openGoal: (id?: string | null) => void;
   closeGoal: () => void;
   setMonth: (m: YearMonth) => void;
+  /** Close everything when the account changes: open modals hold the previous account's records. */
+  reset: () => void;
 }
 
 export const useActions = create<ActionsState>((set) => ({
@@ -36,4 +38,11 @@ export const useActions = create<ActionsState>((set) => ({
   openGoal: (id = null) => set({ goalModal: { open: true, id } }),
   closeGoal: () => set((s) => ({ goalModal: { ...s.goalModal, open: false } })),
   setMonth: (month) => set({ month }),
+  reset: () => set({
+    expenseModal: { open: false, editing: null, bucket: null },
+    investModal: { open: false, txn: null, prefill: null },
+    pfOpen: false,
+    goalModal: { open: false, id: null },
+    month: currentMonth(),
+  }),
 }));
