@@ -3,7 +3,7 @@ import { ArrowDownRight, ArrowUpRight, Calculator, LineChart, Plus, Sparkles, Ta
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import LE from "@/engine/ledger-engine.js";
-import { accountTotals, byCategory, categoryColor, categoryEmoji, currentMonth, inMonth, monthLabel, totals } from "@/engine/expense-engine";
+import { accountTotals, byCategory, categoryColor, categoryEmoji, countsInExpenses, currentMonth, inMonth, monthLabel, totals } from "@/engine/expense-engine";
 import { AnimatedNumber, Card, CardHeader, Empty, Ring, Skeleton } from "@/components/ui";
 import { Sparkline } from "@/components/charts";
 import { cx, fmtPct, fmtRs, fmtRs0, fmtUSD, relTime, tone } from "@/lib/format";
@@ -16,6 +16,7 @@ import { GarageHubCard } from "@/modules/garage/HubCard";
 import { TasksHubCard } from "@/modules/tasks/HubCard";
 import { GoalsHubCard } from "@/modules/goals/HubCard";
 import { DailyLesson } from "@/modules/lessons/DailyLesson";
+import { useSeparateBuckets } from "@/modules/expenses/common";
 
 export default function Hub() {
   const eLoaded = useExpenses((s) => s.loaded);
@@ -33,7 +34,8 @@ export default function Hub() {
   const total = nw.net + (investPkr ?? 0);
 
   const cm = currentMonth();
-  const month = useMemo(() => etx.filter((t) => inMonth(t, cm)), [etx]);
+  const separate = useSeparateBuckets();
+  const month = useMemo(() => etx.filter((t) => inMonth(t, cm) && countsInExpenses(t, separate)), [etx, separate]);
   const mt = totals(month);
   const topCats = byCategory(month).slice(0, 4);
 

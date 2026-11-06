@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
-  accountTotals, bucketSummary, byCategory, calculatePF, categoryColor, categoryEmoji, filterTxns, groupByDay, monthRange, parseDebtPayment,
+  accountTotals, bucketSummary, byCategory, calculatePF, categoryColor, categoryEmoji, countsInExpenses, filterTxns, separateBucketIds, groupByDay, monthRange, parseDebtPayment,
   parseDebtTitle, shiftMonth, toCSV, totals, type Account, type ExpenseTxn,
 } from "../src/engine/expense-engine";
 
@@ -61,6 +61,16 @@ describe("expense engine", () => {
     expect(s).toMatchObject({ count: 3, spent: 150, received: 20, net: 130, first: "2026-09-10", last: "2026-11-01" });
     expect(s.categories).toEqual([{ category: "Transport", amount: 100 }, { category: "Housing & Utilities", amount: 50 }]);
     expect(bucketSummary(list, "nope")).toMatchObject({ count: 0, net: 0, first: null });
+  });
+
+  test("separate-ledger buckets stay out of spending totals", () => {
+    const b = (id: string, in_expenses?: boolean) => ({ id, name: id, emoji: "", color: "", budget: null, status: "active" as const, created_at: 0, in_expenses });
+    const separate = separateBucketIds([b("umrah", false), b("wedding", true), b("old")]);
+    expect([...separate]).toEqual(["umrah"]);
+    const list = [tx({ amount: 100 }), tx({ amount: 500, bucket: "umrah" }), tx({ amount: 40, bucket: "wedding" }), tx({ amount: 7, bucket: "old" })];
+    expect(totals(list.filter((t) => countsInExpenses(t, separate))).expenses).toBe(147);
+    // The bucket's own total still includes everything tagged to it.
+    expect(bucketSummary(list, "umrah").spent).toBe(500);
   });
 
   test("category helpers use the user's list, with a fallback", () => {

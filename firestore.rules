@@ -37,13 +37,14 @@ service cloud.firestore {
     }
 
     function validBucket(d) {
-      return d.keys().hasOnly(['name', 'emoji', 'color', 'budget', 'status', 'created_at'])
+      return d.keys().hasOnly(['name', 'emoji', 'color', 'budget', 'status', 'created_at', 'in_expenses'])
         && d.name is string && d.name.size() > 0 && d.name.size() <= 60
         && d.emoji is string && d.emoji.size() <= 16
         && d.color is string && d.color.size() <= 16
         && (d.budget == null || (d.budget is number && d.budget >= 0))
         && d.status in ['active', 'closed']
-        && d.created_at is number;
+        && d.created_at is number
+        && (!('in_expenses' in d) || d.in_expenses is bool);
     }
 
     function validAccount(d) {

@@ -26,7 +26,14 @@ export interface Bucket {
   budget: number | null;
   status: "active" | "closed";
   created_at: number;
+  /** false = a separate ledger: its transactions stay out of monthly spending totals. Missing = true (older buckets). */
+  in_expenses?: boolean;
 }
+
+/** Ids of buckets kept out of spending totals. */
+export const separateBucketIds = (buckets: Bucket[]) => new Set(buckets.filter((b) => b.in_expenses === false).map((b) => b.id));
+/** Whether a transaction counts towards income/expense totals. */
+export const countsInExpenses = (t: ExpenseTxn, separate: Set<string>) => !t.bucket || !separate.has(t.bucket);
 
 export interface Category { key: string; emoji: string; color: string }
 

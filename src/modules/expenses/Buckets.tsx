@@ -19,6 +19,7 @@ export function BucketModal({ open, bucket, onClose }: { open: boolean; bucket: 
   const [emoji, setEmoji] = useState(EMOJIS[0]);
   const [color, setColor] = useState(BUCKET_COLORS[0]);
   const [budget, setBudget] = useState("");
+  const [inExpenses, setInExpenses] = useState(true);
   const [seenOpen, setSeenOpen] = useState(false);
 
   // Reset the form each time the modal opens.
@@ -27,13 +28,14 @@ export function BucketModal({ open, bucket, onClose }: { open: boolean; bucket: 
     if (open) {
       setName(bucket?.name || ""); setEmoji(bucket?.emoji || EMOJIS[0]);
       setColor(bucket?.color || BUCKET_COLORS[0]); setBudget(bucket?.budget ? fmtAmtStr(bucket.budget) : "");
+      setInExpenses(bucket?.in_expenses !== false);
     }
   }
 
   const save = async () => {
     if (!name.trim()) { toast("Give the bucket a name.", true); return; }
     const b = stripNum(budget);
-    const input = { name, emoji, color, budget: b > 0 ? b : null };
+    const input = { name, emoji, color, budget: b > 0 ? b : null, in_expenses: inExpenses };
     if (bucket) { await update(bucket.id, input); toast("Bucket updated"); }
     else { await add(input); toast(`Bucket "${name.trim()}" created`); }
     onClose();
@@ -67,9 +69,26 @@ export function BucketModal({ open, bucket, onClose }: { open: boolean; bucket: 
             <AmountInput className="!pl-11" value={budget} onChange={setBudget} placeholder="No budget" />
           </div>
         </Field>
+        <IncludeToggle on={inExpenses} set={setInExpenses} />
         <button type="submit" className="hidden" />
       </form>
     </Modal>
+  );
+}
+
+/** On: the bucket's transactions count in monthly spending. Off: a separate ledger, only totalled here. */
+function IncludeToggle({ on, set, compact }: { on: boolean; set: (v: boolean) => void; compact?: boolean }) {
+  return (
+    <div className={cx("flex items-center gap-3 rounded-2xl ring-1 transition-colors", compact ? "p-2.5" : "p-3", on ? "bg-cyan/10 ring-cyan/30" : "bg-line/[.03] ring-line/5")}>
+      <button type="button" role="switch" aria-checked={on} aria-label="Include in expenses" onClick={() => set(!on)}
+        className={cx("relative h-6 w-11 shrink-0 rounded-full transition-colors", on ? "bg-cyan" : "bg-line/20")}>
+        <span className={cx("absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all", on ? "left-[22px]" : "left-0.5")} />
+      </button>
+      <div className="min-w-0 text-sm">
+        <div className="font-semibold">Include in expenses</div>
+        <div className="text-[11.5px] text-muted">{on ? "Counts in your monthly spending, charts and savings rate." : "Separate ledger: totalled here only, left out of monthly spending."}</div>
+      </div>
+    </div>
   );
 }
 
@@ -97,9 +116,16 @@ function BucketCard({ b, delay, onEdit }: { b: Bucket; delay: number; onEdit: ()
   const left = b.budget != null ? b.budget - s.net : null;
   const items = [...s.items].sort((x, y) => y.txn_date.localeCompare(x.txn_date) || y.created_at - x.created_at);
 
+  const separate = b.in_expenses === false;
+  const setInExpenses = (on: boolean) => {
+    update(b.id, { in_expenses: on });
+    toast(on ? `"${b.name}" now counts in your expenses` : `"${b.name}" is now a separate ledger`);
+  };
+
   const remove = async () => {
     const msg = s.count
       ? `Delete "${b.name}"? Its ${s.count} transaction${s.count === 1 ? "" : "s"} stay in your spending history, they just won't be tagged with this bucket any more.`
+        + (separate ? " Because they won't be in a separate bucket any more, they'll start counting in your monthly spending." : "")
       : `Delete "${b.name}"?`;
     if (!(await confirmDialog("Delete bucket", msg, { confirmText: "Delete bucket", danger: true }))) return;
     await del(b.id);
@@ -115,6 +141,7 @@ function BucketCard({ b, delay, onEdit }: { b: Bucket; delay: number; onEdit: ()
             <div className="flex items-center gap-2">
               <h3 className="truncate font-display text-lg font-semibold">{b.name}</h3>
               {closed && <span className="chip !py-0.5 !text-[10px]">Closed</span>}
+              {separate && <span className="chip !py-0.5 !text-[10px]" title="Kept out of monthly spending totals">Separate</span>}
             </div>
             <div className="text-xs text-muted">
               {s.count ? <>{s.count} transaction{s.count === 1 ? "" : "s"} · {s.first === s.last ? shortDate(s.first!) : `${shortDate(s.first!)} – ${shortDate(s.last!)}`}</> : "No transactions yet"}
@@ -143,6 +170,7 @@ function BucketCard({ b, delay, onEdit }: { b: Bucket; delay: number; onEdit: ()
         </div>
         <div className="mt-2"><BucketBar spent={s.net} budget={b.budget} color={b.color} /></div>
         {s.received > 0 && <div className="mt-2 text-xs text-muted">Includes <span className="num pos">{fmtRs(s.received)}</span> received back (refunds etc.)</div>}
+        <div className="mt-4"><IncludeToggle compact on={!separate} set={setInExpenses} /></div>
 
         {s.categories.length > 0 && (
           <div className="mt-4 flex flex-wrap gap-1.5">

@@ -44,7 +44,7 @@ export function demoExpenses(): { txns: ExpenseTxn[]; accounts: Account[]; bucke
       acc("c1", "Car loan", "debt", 380000, 0), acc("c2", "Ali", "debt", 25000, 1),
     ],
     buckets: [
-      { id: "k1", name: "Umrah", emoji: "🕋", color: "#34d399", budget: 650000, status: "active", created_at: 2 },
+      { id: "k1", name: "Umrah", emoji: "🕋", color: "#34d399", budget: 650000, status: "active", created_at: 2, in_expenses: false },
       { id: "k2", name: "Bilal's wedding", emoji: "💍", color: "#f472b6", budget: null, status: "closed", created_at: 1 },
     ],
   };
