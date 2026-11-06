@@ -2,12 +2,12 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Download, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { Card, Empty } from "@/components/ui";
-import { categoryColor, categoryEmoji, filterTxns, groupByDay, monthKey, toCSV, totals } from "@/engine/expense-engine";
+import { categoryColor, categoryEmoji, countsInExpenses, filterTxns, groupByDay, monthKey, toCSV, totals } from "@/engine/expense-engine";
 import { cx, downloadFile, fmtRs } from "@/lib/format";
 import { useActions } from "@/stores/actions";
 import { useExpenses } from "@/stores/expenses";
 import { confirmDialog, toast } from "@/stores/ui";
-import { LoadingGrid, MonthNav, PageTitle, useMonthTxns } from "./common";
+import { LoadingGrid, MonthNav, PageTitle, useMonthTxns, useSeparateBuckets } from "./common";
 
 export default function ExpenseTransactions() {
   const loaded = useExpenses((s) => s.loaded);
@@ -23,7 +23,10 @@ export default function ExpenseTransactions() {
   const filtered = filterTxns(txns, q, cat, bucket);
   const bucketOf = (id: string | null | undefined) => (id ? buckets.find((b) => b.id === id) : undefined);
   const groups = groupByDay(filtered);
-  const ft = totals(filtered);
+  // Separate-ledger buckets are listed but left out of totals, unless you're looking at that one bucket.
+  const separate = useSeparateBuckets();
+  const counted = (list: typeof txns) => list.filter((t) => countsInExpenses(t, separate));
+  const ft = totals(bucket && bucket !== "__none__" ? filtered : counted(filtered));
 
   const exportCSV = () => {
     if (!txns.length) { toast("No transactions to export.", true); return; }
@@ -71,7 +74,7 @@ export default function ExpenseTransactions() {
           ) : (
             <div className="divide-y divide-line/5">
               {groups.map((g, gi) => {
-                const dt = totals(g.items);
+                const dt = totals(counted(g.items));
                 return (
                   <motion.div key={g.day} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(gi * 0.03, 0.3) }}>
                     <div className="flex items-center bg-line/[.02] px-5 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
@@ -82,6 +85,7 @@ export default function ExpenseTransactions() {
                       {g.items.map((t) => {
                         const isIn = t.direction === "IN";
                         const b = bucketOf(t.bucket);
+                        const isSeparate = !countsInExpenses(t, separate);
                         return (
                           <motion.div key={t.id} layout exit={{ opacity: 0, x: -20, height: 0 }} className="group flex items-center gap-3 px-5 py-3 transition hover:bg-line/[.03]">
                             <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-lg" style={{ background: isIn ? "rgb(var(--pos) / .12)" : `${categoryColor(t.category, categories)}22` }}>
@@ -91,10 +95,11 @@ export default function ExpenseTransactions() {
                               <div className="truncate text-sm font-medium">{t.description}</div>
                               <div className="flex items-center gap-2 text-xs text-muted">
                                 <span className="truncate">{isIn ? "Income" : t.category || "Uncategorised"}</span>
-                                {b && <span className="shrink-0 rounded-md px-1.5 py-px text-[10.5px] font-semibold" style={{ background: `${b.color}22`, color: b.color }}>{b.emoji} {b.name}</span>}
+                                {b && <span className="shrink-0 rounded-md px-1.5 py-px text-[10.5px] font-semibold" style={{ background: `${b.color}22`, color: b.color }}
+                                  title={isSeparate ? "Separate ledger: not counted in monthly spending" : undefined}>{b.emoji} {b.name}{isSeparate && " · separate"}</span>}
                               </div>
                             </div>
-                            <div className={cx("num text-sm font-semibold", isIn ? "pos" : "neg")}>{isIn ? "+" : "−"} {fmtRs(t.amount)}</div>
+                            <div className={cx("num text-sm font-semibold", isSeparate ? "text-muted" : isIn ? "pos" : "neg")}>{isIn ? "+" : "−"} {fmtRs(t.amount)}</div>
                             <div className="flex opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100">
                               <button className="icon-btn" title="Edit" onClick={() => openExpense(t)}><Pencil size={15} /></button>
                               <button className="icon-btn hover:!text-neg" title="Delete" onClick={() => remove(t.id, t.description)}><Trash2 size={15} /></button>

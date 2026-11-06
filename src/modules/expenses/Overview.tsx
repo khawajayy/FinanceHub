@@ -5,12 +5,12 @@ import { Link } from "react-router-dom";
 import { Card, CardHeader, Empty, Stat, AnimatedNumber } from "@/components/ui";
 import { Donut, FlowBars } from "@/components/charts";
 import {
-  MONTH_NAMES, accountTotals, bucketSummary, byCategory, categoryColor, categoryEmoji, inMonth, monthLabel, shiftMonth, totals,
+  MONTH_NAMES, accountTotals, bucketSummary, byCategory, categoryColor, categoryEmoji, countsInExpenses, inMonth, monthLabel, shiftMonth, totals,
 } from "@/engine/expense-engine";
 import { cx, fmtRs, fmtRsCompact } from "@/lib/format";
 import { useActions } from "@/stores/actions";
 import { useExpenses } from "@/stores/expenses";
-import { LoadingGrid, MonthNav, PageTitle, useMonthTxns } from "./common";
+import { LoadingGrid, MonthNav, PageTitle, useMonthTxns, useSeparateBuckets } from "./common";
 import { BucketBar } from "./Buckets";
 
 /** Active buckets with all-time totals (buckets span months, so the month picker doesn't apply). */
@@ -29,6 +29,7 @@ function BucketsCard() {
             <div key={b.id} className="group">
               <div className="mb-1.5 flex items-center gap-2 text-sm">
                 <span>{b.emoji}</span><span className="truncate font-medium">{b.name}</span>
+                {b.in_expenses === false && <span className="chip !py-0.5 !text-[10px]" title="Kept out of monthly spending totals">Separate</span>}
                 <button className="icon-btn !h-6 !w-6 opacity-0 transition group-hover:opacity-100" title={`Add expense to ${b.name}`} onClick={() => openExpense(null, b.id)}><Plus size={13} /></button>
                 <span className="num ml-auto font-semibold">{fmtRs(s.net)}</span>
                 {b.budget != null && <span className="num text-xs text-muted">/ {fmtRsCompact(b.budget)}</span>}
@@ -49,16 +50,20 @@ export default function ExpenseOverview() {
   const categories = useExpenses((s) => s.categories);
   const month = useActions((s) => s.month);
   const openExpense = useActions((s) => s.openExpense);
-  const txns = useMonthTxns();
+  const separate = useSeparateBuckets();
+  const monthAll = useMonthTxns();
+  // Buckets with "Include in expenses" off are a separate ledger and stay out of every number here.
+  const txns = monthAll.filter((x) => countsInExpenses(x, separate));
+  const keptOut = totals(monthAll.filter((x) => !countsInExpenses(x, separate))).expenses;
   const t = totals(txns);
   const cats = byCategory(txns);
   const nw = accountTotals(accounts);
 
   const flow = useMemo(() => Array.from({ length: 6 }, (_, i) => {
     const ym = shiftMonth(month, i - 5);
-    const tt = totals(all.filter((x) => inMonth(x, ym)));
+    const tt = totals(all.filter((x) => inMonth(x, ym) && countsInExpenses(x, separate)));
     return { label: MONTH_NAMES[ym.month - 1].slice(0, 3), income: tt.income, expenses: tt.expenses, active: i === 5 };
-  }), [all, month]);
+  }), [all, month, separate]);
 
   const top = [...txns].filter((x) => x.direction === "OUT").sort((a, b) => b.amount - a.amount).slice(0, 5);
   const rateTone = t.savingsRate == null ? "text-muted" : t.savingsRate >= 20 ? "pos" : t.savingsRate >= 0 ? "text-amber" : "neg";
@@ -72,7 +77,7 @@ export default function ExpenseOverview() {
             <Stat label="Income" icon={<ArrowUpRight size={15} />} value={t.income} format={fmtRs} tone="pos" glow="pos" delay={0}
               sub={`${txns.filter((x) => x.direction === "IN").length} credits`} />
             <Stat label="Expenses" icon={<ArrowDownRight size={15} />} value={t.expenses} format={fmtRs} tone="neg" glow="neg" delay={0.05}
-              sub={`${txns.filter((x) => x.direction === "OUT").length} debits`} />
+              sub={`${txns.filter((x) => x.direction === "OUT").length} debits${keptOut > 0 ? ` · ${fmtRs(keptOut)} in separate buckets not counted` : ""}`} />
             <Stat label="Net balance" icon={<Scale size={15} />} value={t.net} format={fmtRs} tone={t.net < 0 ? "neg" : ""} glow="cyan" delay={0.1}
               extra={<div className="mt-3">
                 <div className="mb-1 flex justify-between text-[11px]"><span className="text-muted">Savings rate</span>

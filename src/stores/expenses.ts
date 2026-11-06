@@ -19,7 +19,7 @@ import { toast } from "./ui";
  */
 
 export interface TxnInput { txn_date: string; description: string; amount: number; category: string | null; direction: Direction; bucket: string | null }
-export interface BucketInput { name: string; emoji: string; color: string; budget: number | null }
+export interface BucketInput { name: string; emoji: string; color: string; budget: number | null; in_expenses?: boolean }
 
 type Coll = "transactions" | "accounts" | "buckets";
 type Op =
@@ -108,6 +108,7 @@ export const useExpenses = create<ExpenseState>((set, get) => {
   const bucketData = (b: BucketInput) => ({
     name: b.name.trim().slice(0, 60), emoji: (b.emoji.trim() || "🧺").slice(0, 8), color: b.color,
     budget: b.budget != null && b.budget > 0 ? round2(b.budget) : null,
+    in_expenses: b.in_expenses !== false,
   });
 
   const accountData = (kind: AccountKind, name: string, balance: number) => ({

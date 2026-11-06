@@ -1,6 +1,6 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useMemo } from "react";
-import { currentMonth, inMonth, monthLabel, shiftMonth } from "@/engine/expense-engine";
+import { currentMonth, inMonth, monthLabel, separateBucketIds, shiftMonth } from "@/engine/expense-engine";
 import { useActions } from "@/stores/actions";
 import { useExpenses } from "@/stores/expenses";
 import { Skeleton } from "@/components/ui";
@@ -26,6 +26,12 @@ export function useMonthTxns() {
   const txns = useExpenses((s) => s.txns);
   const month = useActions((s) => s.month);
   return useMemo(() => txns.filter((t) => inMonth(t, month)), [txns, month]);
+}
+
+/** Ids of buckets switched out of "Include in expenses". */
+export function useSeparateBuckets() {
+  const buckets = useExpenses((s) => s.buckets);
+  return useMemo(() => separateBucketIds(buckets), [buckets]);
 }
 
 export function PageTitle({ title, sub, right }: { title: string; sub?: string; right?: React.ReactNode }) {
