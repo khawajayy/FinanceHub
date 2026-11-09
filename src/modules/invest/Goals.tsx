@@ -41,15 +41,17 @@ function GoalCard({ g, equity, onEdit, i }: { g: Goal; equity: number; onEdit: (
   const [table, setTable] = useState(false);
   const isStep = g.type === "stepup";
   const steps = g.steps?.length ? g.steps : [{ target: g.target || 15000, profitPct: g.profitPct || 10 }];
-  const calc = isStep ? GoalCalc.calculateStepUpGoal({ startAmount: g.startAmount && g.startAmount > 0 ? g.startAmount : equity > 0 ? equity : 10000, steps }) : null;
+  const manualStart = g.startAmount != null && g.startAmount > 0;
+  const start = manualStart ? g.startAmount! : equity;
+  const calc = isStep ? GoalCalc.calculateStepUpGoal({ startAmount: start > 0 ? start : 10000, steps }) : null;
   const target = isStep ? calc!.goalAmount || g.target : g.target;
   const pct = g.profitPct || 10;
   const remaining = target - equity;
   const progress = Math.max(0, Math.min(100, (equity / target) * 100));
   const reached = equity >= target - EPS;
   const gainNeeded = equity > 0 ? (target / equity - 1) * 100 : null;
-  const nTrades = isStep ? calc!.totalTrades : GoalCalc.tradesToGoal(equity, target, pct);
-  const endAmount = !isStep && nTrades != null ? equity * Math.pow(1 + pct / 100, nTrades) : null;
+  const nTrades = isStep ? calc!.totalTrades : GoalCalc.tradesToGoal(start, target, pct);
+  const endAmount = !isStep && nTrades != null ? start * Math.pow(1 + pct / 100, nTrades) : null;
   const custom = g.tradeDays != null && g.tradeDays > 0 && !sameDays(g.tradeDays, ledgerDays);
   const tradeDays = custom ? g.tradeDays! : ledgerDays;
   const est = !reached && nTrades && nTrades > 0 ? GoalCalc.estimateTimeToGoal(nTrades, tradeDays) : null;
@@ -81,14 +83,14 @@ function GoalCard({ g, equity, onEdit, i }: { g: Goal; equity: number; onEdit: (
         <Row k="Current equity">{fmtUSD(equity)}</Row>
         <Row k={reached ? "Surplus over goal" : "Remaining"}><span className={cx(reached && "pos")}>{fmtUSD(Math.abs(remaining))}</span>{sec(Math.abs(remaining)) && <div className="text-[11px] font-normal text-muted">{sec(Math.abs(remaining))}</div>}</Row>
         {!reached && gainNeeded != null && <Row k="Gain still needed">{gainNeeded.toFixed(1)}%</Row>}
-        {isStep && <Row k="Starting balance">{fmtUSD(calc!.initialStartingBalance)}</Row>}
+        <Row k={<>Starting capital <Tag className={manualStart ? "ml-1 !bg-amber/12 !text-amber" : "ml-1 !bg-cyan/12 !text-cyan"}>{manualStart ? "manual" : "live"}</Tag></>}>{fmtUSD(isStep ? calc!.initialStartingBalance : start)}</Row>
         {!reached && (isStep ? <Row k="Winning trades required"><span className="gradient-text text-xl">{calc!.totalTrades}</span></Row> : (
           <div className="my-3 rounded-2xl bg-line/[.03] p-3 text-center ring-1 ring-line/5">
             <span className="num gradient-text text-3xl font-semibold">{nTrades != null ? `≈ ${nTrades}` : "—"}</span>
             <span className="text-sm text-muted"> {nTrades === 1 ? "trade" : "trades"} at </span>
             <LiveNum value={String(pct)} onCommit={(raw) => { const v = parseFloat(raw); if (v > 0 && v !== g.profitPct) update((x) => { x.profitPct = v; }); }} className="!inline-block !w-16" />
             <span className="text-sm text-muted"> % each</span>
-            <div className="mt-1 text-[11px] text-muted">compounding {pct}% per win, reinvested</div>
+            <div className="mt-1 text-[11px] text-muted">compounding {pct}% per win, reinvested{manualStart ? ` · from ${fmtUSD(start)}` : ""}</div>
           </div>
         ))}
         {!reached && !isStep && <Row k={`You'd end at (after ${nTrades} ${nTrades === 1 ? "trade" : "trades"})`}><span className="pos">{endAmount != null ? fmtUSD(endAmount) : "—"}</span></Row>}
@@ -146,18 +148,19 @@ function GoalCard({ g, equity, onEdit, i }: { g: Goal; equity: number; onEdit: (
   );
 }
 
-interface EditState { id: string; type: "fixed" | "stepup"; name: string; target: string; profitPct: string; tradeDays: string; startAmount: string; steps: { target: string; profitPct: string }[] }
+type StartMode = "equity" | "manual";
+interface EditState { id: string; type: "fixed" | "stepup"; startMode: StartMode; name: string; target: string; profitPct: string; tradeDays: string; startAmount: string; steps: { target: string; profitPct: string }[] }
 
 function GoalForm({ editing, equity, onDone }: { editing: Goal | "new"; equity: number; onDone: () => void }) {
   const mutate = useInvest((s) => s.mutate);
   const ledgerDays = useLedgerDays();
   const defStart = equity > 0 ? equity : 10000;
   const [f, setF] = useState<EditState>(() => {
-    if (editing === "new") return { id: "new", type: "fixed", name: "", target: "", profitPct: "10", tradeDays: "", startAmount: fmtAmtStr(+defStart.toFixed(2)),
+    if (editing === "new") return { id: "new", type: "fixed", startMode: "equity", name: "", target: "", profitPct: "10", tradeDays: "", startAmount: fmtAmtStr(+defStart.toFixed(2)),
       steps: [{ target: fmtAmtStr(Math.round(defStart * 1.5)), profitPct: "20" }, { target: fmtAmtStr(Math.round(defStart * 10)), profitPct: "10" }] };
     const g = editing;
     const base = g.target || Math.round(defStart * 1.5);
-    return { id: g.id, type: g.type, name: g.name, target: g.target ? fmtAmtStr(g.target) : "", profitPct: String(g.profitPct || 10), tradeDays: fmtDaysInput(g.tradeDays),
+    return { id: g.id, type: g.type, startMode: g.startAmount != null && g.startAmount > 0 ? "manual" : "equity", name: g.name, target: g.target ? fmtAmtStr(g.target) : "", profitPct: String(g.profitPct || 10), tradeDays: fmtDaysInput(g.tradeDays),
       startAmount: fmtAmtStr(g.startAmount && g.startAmount > 0 ? g.startAmount : +defStart.toFixed(2)),
       steps: g.steps?.length ? g.steps.map((s) => ({ target: fmtAmtStr(s.target), profitPct: String(s.profitPct) })) : [{ target: fmtAmtStr(base), profitPct: "20" }, { target: fmtAmtStr(base * 2), profitPct: "10" }] };
   });
@@ -168,16 +171,19 @@ function GoalForm({ editing, equity, onDone }: { editing: Goal | "new"; equity: 
     const td = parseFloat(f.tradeDays);
     const tradeDays = td > 0 && !sameDays(td, ledgerDays) ? td : null;
     const name = f.name.trim();
+    const manual = f.startMode === "manual";
+    const manualStart = stripNum(f.startAmount);
+    if (manual && !(manualStart > 0)) { toast("Enter a positive starting capital", true); return; }
+    const startAmount = manual ? manualStart : null;
     let goal: Goal;
     if (!isStep) {
       const target = stripNum(f.target), pct = parseFloat(f.profitPct);
       if (!(target > 0)) { toast("Enter a positive target amount", true); return; }
       if (!(pct > 0)) { toast("Enter a positive profit percentage", true); return; }
-      goal = { id: f.id, name: name || "Goal", type: "fixed", target, profitPct: pct, tradeDays, startAmount: null, steps: [] };
+      goal = { id: f.id, name: name || "Goal", type: "fixed", target, profitPct: pct, tradeDays, startAmount, steps: [] };
     } else {
-      const startAmount = stripNum(f.startAmount);
       const steps = f.steps.map((s) => ({ target: stripNum(s.target), profitPct: parseFloat(s.profitPct) }));
-      const v = GoalCalc.validateStepUpGoal({ startAmount, steps });
+      const v = GoalCalc.validateStepUpGoal({ startAmount: startAmount ?? defStart, steps });
       if (!v.valid) { toast(v.error || "Invalid goal", true); return; }
       goal = { id: f.id, name: name || "Step-Up Goal", type: "stepup", startAmount, target: steps[steps.length - 1].target, profitPct: steps[0].profitPct, steps, tradeDays };
     }
@@ -194,6 +200,16 @@ function GoalForm({ editing, equity, onDone }: { editing: Goal | "new"; equity: 
       <div className="space-y-4">
         <Segmented id="gtype" className="w-full" value={f.type} onChange={(type) => set({ type })} options={[{ value: "fixed", label: "Fixed profit" }, { value: "stepup", label: "Step-up" }]} />
         <Field label="Name"><input className="input" value={f.name} onChange={(e) => set({ name: e.target.value })} placeholder="e.g. First 10k, Car fund" /></Field>
+        <Field label="Starting capital (USD)" hint={f.startMode === "equity" ? "Follows your live portfolio equity, so the plan updates as it moves." : "A fixed amount to plan from, regardless of your current portfolio."}>
+          <div className="space-y-2">
+            <Segmented id="gstart" size="sm" className="w-full" value={f.startMode} onChange={(startMode) => set({ startMode })}
+              options={[{ value: "equity", label: "Current portfolio" }, { value: "manual", label: "Manual value" }]} />
+            {f.startMode === "equity"
+              ? <div className="input num flex items-center text-muted">{fmtUSD(equity)}{!(equity > 0) && <span className="ml-auto text-[11px]">no equity yet · plans use {fmtUSD(defStart)}</span>}</div>
+              : <div className="flex gap-2"><AmountInput value={f.startAmount} onChange={(startAmount) => set({ startAmount })} placeholder="10,000" aria-label="Starting capital" />
+                  <button type="button" className="btn btn-sm shrink-0" onClick={() => set({ startAmount: fmtAmtStr(+defStart.toFixed(2)) })}>Copy equity</button></div>}
+          </div>
+        </Field>
         {!isStep ? (
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Target value (USD)"><AmountInput value={f.target} onChange={(target) => set({ target })} placeholder="10,000" /></Field>
@@ -201,10 +217,6 @@ function GoalForm({ editing, equity, onDone }: { editing: Goal | "new"; equity: 
           </div>
         ) : (
           <>
-            <Field label="Starting balance (USD)">
-              <div className="flex gap-2"><AmountInput value={f.startAmount} onChange={(startAmount) => set({ startAmount })} placeholder="10,000" />
-                <button type="button" className="btn btn-sm shrink-0" onClick={() => set({ startAmount: fmtAmtStr(+defStart.toFixed(2)) })}>Use equity</button></div>
-            </Field>
             <p className="rounded-xl bg-violet/10 px-3 py-2.5 text-xs text-muted ring-1 ring-violet/20">💡 Each step starts from the previous step's <i>actual</i> ending balance and compounds its % per trade until its target is reached. Targets must increase.</p>
             <div className="space-y-2">
               {f.steps.map((s, i) => (
