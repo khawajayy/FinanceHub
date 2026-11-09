@@ -1,9 +1,9 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowDown, ArrowUp, ChevronRight, Lock, LogOut, Moon, Palette, Plus, RotateCcw, Settings2, ShoppingBag, Sun, Tags, Trash2, UserRound } from "lucide-react";
+import { ArrowDown, ArrowUp, Building2, ChevronRight, Lock, LogOut, Moon, Palette, Plus, RotateCcw, Settings2, ShoppingBag, Sun, Tags, Trash2, UserRound } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Card, CardHeader, Segmented } from "@/components/ui";
-import { CATEGORIES, DEBT_CATEGORY, bucketSummary, type Category } from "@/engine/expense-engine";
+import { CATEGORIES, DEBT_CATEGORY, bucketSummary, orderBanks, type Category } from "@/engine/expense-engine";
 import { cx, fmtRs } from "@/lib/format";
 import { useAuth } from "@/stores/auth";
 import { useExpenses } from "@/stores/expenses";
@@ -102,6 +102,60 @@ function CategoryEditor() {
   );
 }
 
+/** Order in which transactions draw from bank accounts, plus the auto-deduct switch. Saves on every change. */
+function BankPriority() {
+  const accounts = useExpenses((s) => s.accounts);
+  const priority = useExpenses((s) => s.bankPriority);
+  const autoBank = useExpenses((s) => s.autoBank);
+  const setPriority = useExpenses((s) => s.setBankPriority);
+  const setAutoBank = useExpenses((s) => s.setAutoBank);
+  const banks = orderBanks(accounts, priority);
+
+  const move = (i: number, dir: -1 | 1) => {
+    const j = i + dir;
+    if (j < 0 || j >= banks.length) return;
+    const ids = banks.map((b) => b.id);
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+    setPriority(ids);
+    toast(`${banks[i].name} is now #${j + 1}`);
+  };
+  const toggle = () => { setAutoBank(!autoBank); toast(autoBank ? "Auto-deduct off" : "Auto-deduct on"); };
+
+  return (
+    <Card delay={0.04}>
+      <CardHeader title="Bank accounts" icon={<Building2 size={16} />} sub="Transactions update your Net Worth bank balances" />
+      <div className={cx("mx-4 mt-4 flex items-center gap-3 rounded-2xl p-3 ring-1 transition-colors sm:mx-5", autoBank ? "bg-cyan/10 ring-cyan/30" : "bg-line/[.03] ring-line/5")}>
+        <button type="button" role="switch" aria-checked={autoBank} aria-label="Auto-deduct from bank accounts" onClick={toggle}
+          className={cx("relative h-6 w-11 shrink-0 rounded-full transition-colors", autoBank ? "bg-cyan" : "bg-line/20")}>
+          <span className={cx("absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all", autoBank ? "left-[22px]" : "left-0.5")} />
+        </button>
+        <div className="min-w-0 text-sm">
+          <div className="font-semibold">Auto-deduct</div>
+          <div className="text-[11.5px] text-muted">{autoBank
+            ? "Spending comes out of #1 first; when it runs dry the rest comes from #2, and so on. Income goes into #1."
+            : "Off: balances only change when you pick a bank on a transaction."}</div>
+        </div>
+      </div>
+      <div className="divide-y divide-line/5 py-2">
+        {banks.length === 0 && <div className="px-5 py-3 text-sm text-muted">No bank accounts yet. <Link to="/expenses/networth" className="underline">Add one on Net Worth</Link>.</div>}
+        <AnimatePresence initial={false}>
+          {banks.map((b, i) => (
+            <motion.div key={b.id} layout className="flex items-center gap-2 px-4 py-2 sm:px-5">
+              <div className="flex flex-col">
+                <button className="icon-btn !h-5 !w-6 disabled:opacity-20" disabled={i === 0} onClick={() => move(i, -1)} aria-label={`Move ${b.name} up`}><ArrowUp size={12} /></button>
+                <button className="icon-btn !h-5 !w-6 disabled:opacity-20" disabled={i === banks.length - 1} onClick={() => move(i, 1)} aria-label={`Move ${b.name} down`}><ArrowDown size={12} /></button>
+              </div>
+              <span className={cx("chip !py-0.5 !text-[10px]", i === 0 && "!text-cyan")}>#{i + 1}</span>
+              <span className="min-w-0 flex-1 truncate text-sm font-medium">{b.name}</span>
+              <span className={cx("num text-sm", b.balance < 0 && "neg")}>{fmtRs(b.balance)}</span>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
+    </Card>
+  );
+}
+
 function BucketsSummary() {
   const buckets = useExpenses((s) => s.buckets);
   const txns = useExpenses((s) => s.txns);
@@ -133,7 +187,7 @@ export default function Settings() {
 
   return (
     <>
-      <PageTitle title="Settings" sub="Categories, buckets, appearance and account" />
+      <PageTitle title="Settings" sub="Categories, bank priority, buckets, appearance and account" />
       <div className="grid max-w-5xl gap-4 lg:grid-cols-2">
         <Card delay={0}>
           <CardHeader title="Appearance" icon={<Palette size={16} />} />
@@ -159,6 +213,7 @@ export default function Settings() {
           </div>
         </Card>
         <CategoryEditor />
+        <BankPriority />
         <BucketsSummary />
       </div>
     </>

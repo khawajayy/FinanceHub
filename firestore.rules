@@ -26,14 +26,16 @@ service cloud.firestore {
 
     // ---------- Expenses ----------
     function validTxn(d) {
-      return d.keys().hasOnly(['txn_date', 'description', 'amount', 'category', 'direction', 'created_at', 'bucket'])
+      return d.keys().hasOnly(['txn_date', 'description', 'amount', 'category', 'direction', 'created_at', 'bucket', 'bank_moves'])
         && d.txn_date is string && d.txn_date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
         && d.description is string && d.description.size() > 0 && d.description.size() <= 200
         && d.amount is number && d.amount >= 0
         && (d.category == null || (d.category is string && d.category.size() <= 80))
         && d.direction in ['IN', 'OUT']
         && d.created_at is number
-        && (!('bucket' in d) || d.bucket == null || (d.bucket is string && d.bucket.size() <= 64));
+        && (!('bucket' in d) || d.bucket == null || (d.bucket is string && d.bucket.size() <= 64))
+        // Bank balance changes this transaction made (account id -> signed amount).
+        && (!('bank_moves' in d) || d.bank_moves == null || (d.bank_moves is map && d.bank_moves.size() <= 50));
     }
 
     function validBucket(d) {
@@ -71,13 +73,15 @@ service cloud.firestore {
       allow create, update: if isOwner(uid) && validBucket(request.resource.data);
     }
 
-    // User-edited category list (Settings). Transactions keep the category name as a string.
+    // Settings: category list (transactions keep the category name as a string),
+    // bank priority for auto-deduct (account ids, first = drawn from first) and its on/off switch.
     match /expenses/{uid}/prefs/main {
       allow read, delete: if isOwner(uid);
       allow create, update: if isOwner(uid)
-        && request.resource.data.keys().hasOnly(['categories'])
-        && request.resource.data.categories is list
-        && request.resource.data.categories.size() <= 60;
+        && request.resource.data.keys().hasOnly(['categories', 'bank_priority', 'auto_bank'])
+        && (!('categories' in request.resource.data) || (request.resource.data.categories is list && request.resource.data.categories.size() <= 60))
+        && (!('bank_priority' in request.resource.data) || (request.resource.data.bank_priority is list && request.resource.data.bank_priority.size() <= 100))
+        && (!('auto_bank' in request.resource.data) || request.resource.data.auto_bank is bool);
     }
 
     // ---------- Electricity ----------

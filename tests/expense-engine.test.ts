@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   accountTotals, bucketSummary, byCategory, calculatePF, categoryColor, categoryEmoji, countsInExpenses, filterTxns, separateBucketIds, groupByDay, monthRange, parseDebtPayment,
   parseDebtTitle, shiftMonth, toCSV, totals, type Account, type ExpenseTxn,
+  AUTO_BANK, NO_BANK, applyMoves, orderBanks, planBankMoves, sourceOf,
 } from "../src/engine/expense-engine";
 
 const tx = (p: Partial<ExpenseTxn>): ExpenseTxn => ({
@@ -95,5 +96,49 @@ describe("expense engine", () => {
     const r = calculatePF({ initialBalance: 1000, empMonthly: 0, employerMonthly: 0, years: 1, annualRatePct: 12, annualIncrementPct: 0, taxEnabled: true, taxRatePct: 10, taxScope: "interest" });
     expect(r.totalInterest).toBeCloseTo(1000 * (Math.pow(1.01, 12) - 1), 6);
     expect(r.taxDeduction).toBeCloseTo(r.totalInterest * 0.1, 6);
+  });
+});
+
+describe("auto-deduct from bank accounts", () => {
+  const bank = (id: string, balance: number, sort_order = 0): Account => ({ id, name: id, kind: "bank", balance, sort_order, created_at: 0 });
+  const banks = [bank("A", 1000, 0), bank("B", 500, 1), bank("C", 0, 2)];
+
+  test("orderBanks follows the priority list, then Net Worth order, banks only", () => {
+    const all = [...banks, { ...bank("X", 9), kind: "asset" as const }];
+    expect(orderBanks(all, ["B"]).map((b) => b.id)).toEqual(["B", "A", "C"]);
+    expect(orderBanks(all, ["C", "gone", "A"]).map((b) => b.id)).toEqual(["C", "A", "B"]);
+    expect(orderBanks(all).map((b) => b.id)).toEqual(["A", "B", "C"]);
+  });
+
+  test("spending drains banks in order and overdraws the top one when all are empty", () => {
+    expect(planBankMoves(300, "OUT", banks)).toEqual({ A: -300 });
+    expect(planBankMoves(1200, "OUT", banks)).toEqual({ A: -1000, B: -200 });
+    expect(planBankMoves(1800, "OUT", banks)).toEqual({ A: -1300, B: -500 });
+    expect(planBankMoves(50, "OUT", [bank("A", -10), bank("B", 20)])).toEqual({ A: -30, B: -20 });
+  });
+
+  test("income goes to the top bank; a picked bank or none overrides", () => {
+    expect(planBankMoves(400, "IN", banks)).toEqual({ A: 400 });
+    expect(planBankMoves(2000, "OUT", banks, "C")).toEqual({ C: -2000 });
+    expect(planBankMoves(400, "IN", banks, "B")).toEqual({ B: 400 });
+    expect(planBankMoves(400, "OUT", banks, NO_BANK)).toEqual({});
+    expect(planBankMoves(400, "OUT", banks, "deleted-bank")).toEqual({ A: -400 });
+    expect(planBankMoves(0, "OUT", banks)).toEqual({});
+    expect(planBankMoves(10, "OUT", [])).toEqual({});
+  });
+
+  test("applyMoves applies and undoes, ignoring removed accounts", () => {
+    const moves = { A: -1000, B: -200, gone: -5 };
+    const after = applyMoves(banks, moves);
+    expect(after.map((b) => b.balance)).toEqual([0, 300, 0]);
+    expect(applyMoves(after, moves, -1).map((b) => b.balance)).toEqual([1000, 500, 0]);
+    expect(applyMoves(banks, null)).toBe(banks);
+  });
+
+  test("sourceOf picks the bank, auto when split, none when untouched", () => {
+    expect(sourceOf({ bank_moves: { A: -5 } })).toBe("A");
+    expect(sourceOf({ bank_moves: { A: -5, B: -1 } })).toBe(AUTO_BANK);
+    expect(sourceOf({ bank_moves: null })).toBe(NO_BANK);
+    expect(sourceOf({})).toBe(NO_BANK);
   });
 });

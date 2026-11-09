@@ -1,16 +1,17 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { Building2, Calculator, Gem, HandCoins, Minus, Plus, X } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 import { AmountInput, AnimatedNumber, Card, CardHeader } from "@/components/ui";
 import { Donut } from "@/components/charts";
-import { accountTotals, type Account, type AccountKind } from "@/engine/expense-engine";
+import { accountTotals, orderBanks, type Account, type AccountKind } from "@/engine/expense-engine";
 import { cx, fmtAmtStr, fmtRs, stripNum } from "@/lib/format";
 import { useActions } from "@/stores/actions";
 import { useExpenses } from "@/stores/expenses";
 import { confirmDialog, promptDialog, toast } from "@/stores/ui";
 import { LoadingGrid, PageTitle } from "./common";
 
-function AccountRow({ a }: { a: Account }) {
+function AccountRow({ a, rank }: { a: Account; rank?: number }) {
   const setBalance = useExpenses((s) => s.setBalance);
   const del = useExpenses((s) => s.deleteAccount);
   const adjustDebt = useExpenses((s) => s.adjustDebt);
@@ -37,6 +38,7 @@ function AccountRow({ a }: { a: Account }) {
 
   return (
     <motion.div layout initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -16 }} className="group flex items-center gap-2 px-5 py-2.5">
+      {rank !== undefined && <span className={cx("chip !py-0.5 !text-[10px]", rank === 1 && "!text-cyan")} title="Auto-deduct priority (change in Settings)">#{rank}</span>}
       <span className="min-w-0 flex-1 truncate text-sm font-medium">{a.name}</span>
       {a.kind === "debt" && <>
         <button className="btn btn-sm !text-pos" title="Repay (logs an expense)" onClick={() => debt("repay")}><Minus size={13} />Repay</button>
@@ -52,7 +54,12 @@ function AccountRow({ a }: { a: Account }) {
 function Section({ kind, title, icon, total, hint, placeholder, delay, action, accent }: {
   kind: AccountKind; title: string; icon: ReactNode; total: number; hint?: ReactNode; placeholder: string; delay: number; action?: ReactNode; accent: string;
 }) {
-  const accounts = useExpenses((s) => s.accounts).filter((a) => a.kind === kind);
+  const all = useExpenses((s) => s.accounts);
+  const priority = useExpenses((s) => s.bankPriority);
+  const autoBank = useExpenses((s) => s.autoBank);
+  const accounts = all.filter((a) => a.kind === kind);
+  // Banks show their auto-deduct rank while it's on.
+  const ranks = kind === "bank" && autoBank ? new Map(orderBanks(all, priority).map((b, i) => [b.id, i + 1])) : null;
   const add = useExpenses((s) => s.addAccount);
   const [name, setName] = useState("");
   const [bal, setBal] = useState("");
@@ -66,7 +73,7 @@ function Section({ kind, title, icon, total, hint, placeholder, delay, action, a
       <CardHeader title={title} icon={icon} right={<>{action}<AnimatedNumber value={total} format={fmtRs} className={cx("text-base font-semibold", accent)} /></>} />
       {hint && <p className="border-b hairline px-5 py-3 text-xs leading-relaxed text-muted">{hint}</p>}
       <div className="py-2">
-        <AnimatePresence initial={false}>{accounts.map((a) => <AccountRow key={a.id} a={a} />)}</AnimatePresence>
+        <AnimatePresence initial={false}>{accounts.map((a) => <AccountRow key={a.id} a={a} rank={ranks?.get(a.id)} />)}</AnimatePresence>
         {!accounts.length && <div className="px-5 py-4 text-sm text-muted">{kind === "debt" ? "No debts recorded — nice." : "Nothing here yet."}</div>}
       </div>
       <form className="flex gap-2 border-t hairline p-4" onSubmit={(e) => { e.preventDefault(); submit(); }}>
@@ -76,6 +83,13 @@ function Section({ kind, title, icon, total, hint, placeholder, delay, action, a
       </form>
     </Card>
   );
+}
+
+function BankHint() {
+  const autoBank = useExpenses((s) => s.autoBank);
+  return autoBank
+    ? <>Transactions update these balances automatically — spending comes out of <b>#1</b> first, then the next. <Link to="/settings" className="underline">Change the order in Settings</Link>.</>
+    : <>Auto-deduct is off, so balances only change when you pick a bank on a transaction. <Link to="/settings" className="underline">Turn it on in Settings</Link>.</>;
 }
 
 export default function NetWorth() {
@@ -91,7 +105,8 @@ export default function NetWorth() {
           <div className="space-y-4">
             <Section kind="asset" title="Assets / money bound" icon={<Gem size={16} />} total={t.assets} placeholder="New asset (e.g. Provident Fund)" delay={0} accent="text-violet"
               action={<button className="btn btn-sm" onClick={() => setPf(true)}><Calculator size={13} /> PF calculator</button>} />
-            <Section kind="bank" title="Bank accounts" icon={<Building2 size={16} />} total={t.banks} placeholder="New account name" delay={0.05} accent="text-cyan" />
+            <Section kind="bank" title="Bank accounts" icon={<Building2 size={16} />} total={t.banks} placeholder="New account name" delay={0.05} accent="text-cyan"
+              hint={<BankHint />} />
             <Section kind="debt" title="Debts / liabilities" icon={<HandCoins size={16} />} total={t.debts} placeholder="New debt (e.g. Car loan)" delay={0.1} accent="neg"
               hint={<>Money you owe — subtracted from net worth. <b>Repay</b> / <b>Borrow</b> also log a transaction. A transaction titled <b>"Debt - Name"</b> creates or tops up a debt; <b>"Debt paid - Name"</b> reduces it.</>} />
           </div>

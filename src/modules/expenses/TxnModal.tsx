@@ -1,9 +1,11 @@
 import { motion } from "framer-motion";
-import { ArrowDownCircle, ArrowUpCircle, ReceiptText } from "lucide-react";
-import { useEffect, useState } from "react";
+import { ArrowDownCircle, ArrowUpCircle, Building2, ReceiptText } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { AmountInput, Field, Modal, Segmented } from "@/components/ui";
-import { defaultFormDate, parseDebtPayment, parseDebtTitle, type Direction } from "@/engine/expense-engine";
-import { cx, fmtAmtStr, stripNum } from "@/lib/format";
+import {
+  AUTO_BANK, NO_BANK, applyMoves, defaultFormDate, orderBanks, parseDebtPayment, parseDebtTitle, planBankMoves, sourceOf, type BankSource, type Direction,
+} from "@/engine/expense-engine";
+import { cx, fmtAmtStr, fmtRs, stripNum } from "@/lib/format";
 import { useActions } from "@/stores/actions";
 import { useExpenses } from "@/stores/expenses";
 import { toast } from "@/stores/ui";
@@ -17,6 +19,9 @@ export function ExpenseTxnModal() {
   const updateTxn = useExpenses((s) => s.updateTxn);
   const categories = useExpenses((s) => s.categories);
   const allBuckets = useExpenses((s) => s.buckets);
+  const accounts = useExpenses((s) => s.accounts);
+  const bankPriority = useExpenses((s) => s.bankPriority);
+  const autoBank = useExpenses((s) => s.autoBank);
 
   const [date, setDate] = useState("");
   const [amount, setAmount] = useState("");
@@ -24,6 +29,8 @@ export function ExpenseTxnModal() {
   const [dir, setDir] = useState<Direction>("OUT");
   const [cat, setCat] = useState<string>(categories[0].key);
   const [bucket, setBucket] = useState<string | null>(null);
+  const [source, setSource] = useState<BankSource>(AUTO_BANK);
+  const [initialSource, setInitialSource] = useState<BankSource>(AUTO_BANK);
 
   useEffect(() => {
     if (!open) return;
@@ -33,7 +40,21 @@ export function ExpenseTxnModal() {
     setDir(editing?.direction || "OUT");
     setCat(editing?.category || categories[0].key);
     setBucket(editing ? editing.bucket || null : presetBucket);
+    // Editing shows where the money went; transactions from before auto-deduct show "Don't change".
+    const src = editing ? sourceOf(editing) : autoBank ? AUTO_BANK : NO_BANK;
+    setSource(src); setInitialSource(src);
   }, [open, editing, month, presetBucket]);
+
+  // Banks as they'd be without this transaction, in priority order, for the preview.
+  const banks = useMemo(() => orderBanks(applyMoves(accounts, editing?.bank_moves, -1), bankPriority), [accounts, editing, bankPriority]);
+  const preview = useMemo(() => {
+    const amt = stripNum(amount);
+    if (!(amt > 0)) return [];
+    return Object.entries(planBankMoves(amt, dir, banks, source)).map(([id, d]) => {
+      const b = banks.find((x) => x.id === id)!;
+      return { name: b.name, delta: d, after: b.balance + d };
+    });
+  }, [amount, dir, banks, source]);
 
   // Closed buckets are hidden from the picker, unless this transaction is already in one.
   const buckets = allBuckets.filter((b) => b.status === "active" || b.id === bucket);
@@ -41,7 +62,9 @@ export function ExpenseTxnModal() {
   const save = async () => {
     const amt = stripNum(amount);
     if (!date || !desc.trim() || !(amt >= 0)) { toast("Please fill in date, description and a valid amount.", true); return; }
-    const payload = { txn_date: date, amount: amt, description: desc.trim(), direction: dir, category: dir === "OUT" ? cat : null, bucket };
+    // An edit that doesn't change the amount, direction or bank leaves the balances alone.
+    const same = editing && source === initialSource && Math.abs(amt - editing.amount) < 0.005 && dir === editing.direction;
+    const payload = { txn_date: date, amount: amt, description: desc.trim(), direction: dir, category: dir === "OUT" ? cat : null, bucket, source: same ? undefined : source };
     if (editing) { await updateTxn(editing.id, payload); toast("Transaction updated"); }
     else toast(await addTxn(payload));
     const [y, m] = date.split("-").map(Number);
@@ -101,6 +124,31 @@ export function ExpenseTxnModal() {
                 </button>
               ))}
             </div>
+          </div>
+        )}
+        {banks.length > 0 && (
+          <div>
+            <span className="field-label">{dir === "IN" ? "Received into" : "Paid from"}</span>
+            <div className="flex flex-wrap gap-2">
+              {[...(autoBank || source === AUTO_BANK ? [{ id: AUTO_BANK, label: "Auto · by priority" }] : []), ...banks.map((b) => ({ id: b.id, label: b.name })), { id: NO_BANK, label: "Don't change balances" }].map((o) => (
+                <button type="button" key={o.id} onClick={() => setSource(o.id)}
+                  className={cx("flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium ring-1 transition",
+                    source === o.id ? "bg-cyan/10 text-ink ring-cyan/40" : "text-muted ring-line/10 hover:text-ink")}>
+                  {o.id !== AUTO_BANK && o.id !== NO_BANK && <Building2 size={12} />}{o.label}
+                </button>
+              ))}
+            </div>
+            {preview.length > 0 && (
+              <div className="mt-2 space-y-0.5 text-xs text-muted">
+                {preview.map((p) => (
+                  <div key={p.name} className="flex gap-2">
+                    <span>{p.name}</span>
+                    <span className={cx("num", p.delta < 0 ? "neg" : "pos")}>{p.delta < 0 ? "−" : "+"} {fmtRs(Math.abs(p.delta))}</span>
+                    <span className={cx("num ml-auto", p.after < 0 && "neg")}>→ {fmtRs(p.after)}{p.after < 0 && " (overdrawn)"}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
         <button type="submit" className="hidden" />

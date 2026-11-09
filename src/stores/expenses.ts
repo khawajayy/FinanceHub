@@ -3,22 +3,26 @@ import { collection, doc, onSnapshot, setDoc, writeBatch, type Unsubscribe } fro
 import { db } from "@/lib/firebase";
 import { DEMO, demoExpenses } from "@/lib/demo";
 import {
-  CATEGORIES, DEBT_CATEGORY, findDebt, isProvidentFund, parseDebtPayment, parseDebtTitle, todayISO,
-  type Account, type AccountKind, type Bucket, type Category, type Direction, type ExpenseTxn,
+  AUTO_BANK, CATEGORIES, DEBT_CATEGORY, applyMoves, findDebt, isProvidentFund, orderBanks, parseDebtPayment, parseDebtTitle, planBankMoves, todayISO,
+  type Account, type AccountKind, type BankMoves, type BankSource, type Bucket, type Category, type Direction, type ExpenseTxn,
 } from "@/engine/expense-engine";
 import { toast } from "./ui";
 
 /*
  * Firestore layout (one owner per tree, see firestore.rules):
- *   expenses/{uid}/transactions/{id}  { txn_date, description, amount, category, direction, created_at, bucket? }
+ *   expenses/{uid}/transactions/{id}  { txn_date, description, amount, category, direction, created_at, bucket?, bank_moves? }
  *   expenses/{uid}/accounts/{id}      { name, kind, balance, sort_order, created_at }
  *   expenses/{uid}/buckets/{id}       { name, emoji, color, budget, status, created_at }
- *   expenses/{uid}/prefs/main         { categories: [{ key, emoji, color }] }  (missing = defaults)
+ *   expenses/{uid}/prefs/main         { categories: [{ key, emoji, color }], bank_priority: [accountId], auto_bank: bool }  (missing = defaults)
  * Every change is applied to local state first (instant UI), then written as one
  * batch. Firestore's offline cache queues the batch while offline.
  */
 
-export interface TxnInput { txn_date: string; description: string; amount: number; category: string | null; direction: Direction; bucket: string | null }
+export interface TxnInput {
+  txn_date: string; description: string; amount: number; category: string | null; direction: Direction; bucket: string | null;
+  /** Which bank the money moves through ("auto" when omitted on add). On update, omitted = keep the bank changes as they are. */
+  source?: BankSource;
+}
 export interface BucketInput { name: string; emoji: string; color: string; budget: number | null; in_expenses?: boolean }
 
 type Coll = "transactions" | "accounts" | "buckets";
@@ -33,6 +37,10 @@ interface ExpenseState {
   accounts: Account[];
   buckets: Bucket[];
   categories: Category[];
+  /** Bank account ids, first = drawn from first. */
+  bankPriority: string[];
+  /** Whether transactions move bank balances by default (a bank picked by hand always does). */
+  autoBank: boolean;
   loaded: boolean;
   error: string | null;
   start: (uid: string) => void;
@@ -51,6 +59,8 @@ interface ExpenseState {
   deleteBucket: (id: string) => Promise<number>;
   /** Saves the list; `renames` (old → new) and `removed` (→ uncategorised) are applied to existing transactions. */
   saveCategories: (next: Category[], renames?: Record<string, string>, removed?: string[]) => Promise<void>;
+  setBankPriority: (ids: string[]) => Promise<void>;
+  setAutoBank: (on: boolean) => Promise<void>;
 }
 
 let unsubs: Unsubscribe[] = [];
@@ -103,7 +113,26 @@ export const useExpenses = create<ExpenseState>((set, get) => {
     }
   }
 
-  const txnData = (t: TxnInput) => ({ ...t, amount: round2(t.amount), description: t.description.slice(0, 200), bucket: t.bucket || null });
+  const txnData = ({ source: _source, ...t }: TxnInput) => ({ ...t, amount: round2(t.amount), description: t.description.slice(0, 200), bucket: t.bucket || null });
+
+  function savePrefs(patch: Record<string, unknown>) {
+    const uid = get().uid;
+    if (!DEMO && uid) setDoc(doc(db, "expenses", uid, "prefs", "main"), patch, { merge: true }).catch(onWriteError);
+  }
+
+  /** Bank changes for a transaction, worked out against `accounts`. Auto-deduct off → only a hand-picked bank is touched. */
+  function plan(amount: number, direction: Direction, source: BankSource | undefined, accounts: Account[]): BankMoves {
+    const src = source || AUTO_BANK;
+    if (src === AUTO_BANK && !get().autoBank) return {};
+    return planBankMoves(amount, direction, orderBanks(accounts, get().bankPriority), src);
+  }
+
+  /** Balance updates turning `before` into `after`, for accounts whose balance changed. */
+  const balanceOps = (before: Account[], after: Account[]): Op[] => after
+    .filter((a) => before.find((b) => b.id === a.id)?.balance !== a.balance)
+    .map((a) => ({ kind: "update", coll: "accounts", id: a.id, data: { balance: a.balance } }));
+
+  const movesOrNull = (m: BankMoves) => (Object.keys(m).length ? m : null);
 
   const bucketData = (b: BucketInput) => ({
     name: b.name.trim().slice(0, 60), emoji: (b.emoji.trim() || "🧺").slice(0, 8), color: b.color,
@@ -117,7 +146,7 @@ export const useExpenses = create<ExpenseState>((set, get) => {
   });
 
   return {
-    uid: null, txns: [], accounts: [], buckets: [], categories: [...CATEGORIES], loaded: false, error: null,
+    uid: null, txns: [], accounts: [], buckets: [], categories: [...CATEGORIES], bankPriority: [], autoBank: true, loaded: false, error: null,
 
     start: (uid) => {
       if (get().uid === uid) return;
@@ -141,15 +170,25 @@ export const useExpenses = create<ExpenseState>((set, get) => {
           set({ buckets: sortBuckets(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Bucket, "id">) }))) });
         }, (e) => console.error(e)),
         onSnapshot(doc(db, "expenses", uid, "prefs", "main"), (snap) => {
-          set({ categories: cleanCategories(snap.data()?.categories) });
+          const d = snap.data();
+          set({
+            categories: cleanCategories(d?.categories),
+            bankPriority: Array.isArray(d?.bank_priority) ? d.bank_priority.filter((x: unknown): x is string => typeof x === "string") : [],
+            autoBank: d?.auto_bank !== false,
+          });
         }, (e) => console.error(e)),
       ];
     },
 
-    stop: () => { unsubs.forEach((u) => u()); unsubs = []; set({ uid: null, txns: [], accounts: [], buckets: [], categories: [...CATEGORIES], loaded: false }); },
+    stop: () => { unsubs.forEach((u) => u()); unsubs = []; set({ uid: null, txns: [], accounts: [], buckets: [], categories: [...CATEGORIES], bankPriority: [], autoBank: true, loaded: false }); },
 
     addTxn: async (t) => {
-      const ops: Op[] = [{ kind: "set", coll: "transactions", id: newId(), data: { ...txnData(t), created_at: Date.now() } }];
+      const accounts = get().accounts;
+      const moves = plan(t.amount, t.direction, t.source, accounts);
+      const ops: Op[] = [
+        { kind: "set", coll: "transactions", id: newId(), data: { ...txnData(t), bank_moves: movesOrNull(moves), created_at: Date.now() } },
+        ...balanceOps(accounts, applyMoves(accounts, moves)),
+      ];
       // "Debt paid - Name" reduces that debt; "Debt - Name" creates / tops it up.
       let msg = "Transaction added";
       const paid = parseDebtPayment(t.description);
@@ -165,24 +204,47 @@ export const useExpenses = create<ExpenseState>((set, get) => {
         msg = `Transaction added · debt "${added}" updated`;
       }
       commit(ops);
+      const hit = Object.keys(moves).map((id) => accounts.find((a) => a.id === id)?.name).filter(Boolean);
+      if (hit.length) msg += ` · ${t.direction === "IN" ? "added to" : "paid from"} ${hit.join(" + ")}`;
       return msg;
     },
 
-    updateTxn: async (id, t) => commit([{ kind: "update", coll: "transactions", id, data: txnData(t) }]),
-    deleteTxn: async (id) => commit([{ kind: "delete", coll: "transactions", id }]),
+    updateTxn: async (id, t) => {
+      const old = get().txns.find((x) => x.id === id);
+      if (!old || t.source === undefined) { commit([{ kind: "update", coll: "transactions", id, data: txnData(t) }]); return; }
+      // Undo what the old version did to the banks, then apply the new one from there.
+      const accounts = get().accounts;
+      const undone = applyMoves(accounts, old.bank_moves, -1);
+      const moves = plan(t.amount, t.direction, t.source, undone);
+      commit([
+        { kind: "update", coll: "transactions", id, data: { ...txnData(t), bank_moves: movesOrNull(moves) } },
+        ...balanceOps(accounts, applyMoves(undone, moves)),
+      ]);
+    },
+
+    deleteTxn: async (id) => {
+      const old = get().txns.find((x) => x.id === id);
+      const accounts = get().accounts;
+      commit([{ kind: "delete", coll: "transactions", id }, ...balanceOps(accounts, applyMoves(accounts, old?.bank_moves, -1))]);
+    },
     addAccount: async (kind, name, balance) => commit([{ kind: "set", coll: "accounts", id: newId(), data: accountData(kind, name, balance) }]),
     setBalance: async (id, balance) => commit([{ kind: "update", coll: "accounts", id, data: { balance: round2(balance) } }]),
     deleteAccount: async (id) => commit([{ kind: "delete", coll: "accounts", id }]),
 
     // Repay: debt down + OUT expense. Borrow: debt up + IN income.
     adjustDebt: async (id, mode, amount) => {
-      const d = get().accounts.find((a) => a.id === id);
+      const accounts = get().accounts;
+      const d = accounts.find((a) => a.id === id);
       if (!d) return;
+      // Repaying comes out of the banks; borrowed money lands in one.
+      const moves = plan(amount, mode === "repay" ? "OUT" : "IN", AUTO_BANK, accounts);
       commit([
         { kind: "update", coll: "accounts", id, data: { balance: round2(mode === "repay" ? Math.max(0, d.balance - amount) : d.balance + amount) } },
-        { kind: "set", coll: "transactions", id: newId(), data: mode === "repay"
-          ? { txn_date: todayISO(), amount: round2(amount), description: `Repaid: ${d.name}`, direction: "OUT", category: DEBT_CATEGORY, created_at: Date.now() }
-          : { txn_date: todayISO(), amount: round2(amount), description: `Borrowed: ${d.name}`, direction: "IN", category: null, created_at: Date.now() } },
+        { kind: "set", coll: "transactions", id: newId(), data: { ...(mode === "repay"
+          ? { txn_date: todayISO(), amount: round2(amount), description: `Repaid: ${d.name}`, direction: "OUT", category: DEBT_CATEGORY }
+          : { txn_date: todayISO(), amount: round2(amount), description: `Borrowed: ${d.name}`, direction: "IN", category: null }),
+          bank_moves: movesOrNull(moves), created_at: Date.now() } },
+        ...balanceOps(accounts, applyMoves(accounts, moves)),
       ]);
     },
 
@@ -224,8 +286,10 @@ export const useExpenses = create<ExpenseState>((set, get) => {
         else if (removed.includes(t.category)) ops.push({ kind: "update", coll: "transactions", id: t.id, data: { category: null } });
       }
       if (ops.length) commit(ops);
-      const uid = get().uid;
-      if (!DEMO && uid) setDoc(doc(db, "expenses", uid, "prefs", "main"), { categories }).catch(onWriteError);
+      savePrefs({ categories });
     },
+
+    setBankPriority: async (ids) => { set({ bankPriority: ids }); savePrefs({ bank_priority: ids.slice(0, 100) }); },
+    setAutoBank: async (on) => { set({ autoBank: on }); savePrefs({ auto_bank: on }); },
   };
 });

@@ -15,7 +15,16 @@ export interface ExpenseTxn {
   direction: Direction;
   created_at: number; // ms
   bucket?: string | null; // Bucket id, optional
+  /** Bank balance changes this transaction made (account id → signed delta), so edits and deletes can undo them. Missing = made before auto-deduct, never touched a bank. */
+  bank_moves?: BankMoves | null;
 }
+
+/** account id → signed balance change. */
+export type BankMoves = Record<string, number>;
+/** Where a transaction's money comes from / goes to: "auto" = bank priority order, "none" = leave balances alone, else a bank account id. */
+export type BankSource = string;
+export const AUTO_BANK = "auto";
+export const NO_BANK = "none";
 
 /** A temporary tag for spending that belongs together (a trip, a wedding, a move). */
 export interface Bucket {
@@ -142,6 +151,48 @@ export function accountTotals(accounts: Account[]) {
     else if (a.kind === "debt") debts += Number(a.balance);
   }
   return { assets, banks, debts, net: assets + banks - debts };
+}
+
+/* ---------- Auto-deduct from bank accounts ---------- */
+const r2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Bank accounts in the user's priority order; banks not in the list follow, in their Net Worth order. */
+export function orderBanks(accounts: Account[], priority: readonly string[] = []) {
+  const rank = (a: Account) => { const i = priority.indexOf(a.id); return i < 0 ? Number.MAX_SAFE_INTEGER : i; };
+  return accounts.filter((a) => a.kind === "bank").sort((x, y) => rank(x) - rank(y) || x.sort_order - y.sort_order || x.created_at - y.created_at);
+}
+
+/**
+ * Which banks a transaction hits. Income goes to the top bank (or the chosen one).
+ * Spending drains banks in order, skipping empty ones; whatever no bank can cover
+ * is taken from the top bank, which then goes negative (overdrawn).
+ */
+export function planBankMoves(amount: number, direction: Direction, banks: Account[], source: BankSource = AUTO_BANK): BankMoves {
+  const amt = r2(Math.max(0, Number(amount) || 0));
+  if (!amt || source === NO_BANK || !banks.length) return {};
+  const sign = direction === "IN" ? 1 : -1;
+  const pinned = source !== AUTO_BANK ? banks.find((b) => b.id === source) : undefined;
+  if (pinned) return { [pinned.id]: sign * amt };
+  if (direction === "IN") return { [banks[0].id]: amt };
+  const moves: BankMoves = {};
+  let left = amt;
+  for (const b of banks) {
+    const take = r2(Math.min(left, Math.max(0, b.balance)));
+    if (take > 0) { moves[b.id] = -take; left = r2(left - take); }
+    if (left <= 0) break;
+  }
+  if (left > 0) moves[banks[0].id] = r2((moves[banks[0].id] || 0) - left);
+  return moves;
+}
+
+/** Accounts with `moves` applied (`sign` -1 undoes them). Moves for removed accounts are ignored. */
+export const applyMoves = (accounts: Account[], moves: BankMoves | null | undefined, sign: 1 | -1 = 1) =>
+  moves ? accounts.map((a) => (moves[a.id] ? { ...a, balance: r2(a.balance + sign * moves[a.id]) } : a)) : accounts;
+
+/** The source the picker should show for a saved transaction: its single bank, "auto" if split, else "none". */
+export function sourceOf(t: Pick<ExpenseTxn, "bank_moves">): BankSource {
+  const ids = Object.keys(t.bank_moves || {});
+  return ids.length === 1 ? ids[0] : ids.length ? AUTO_BANK : NO_BANK;
 }
 
 /** `bucket`: "" = any, "__none__" = not in a bucket, else a bucket id. */
