@@ -54,7 +54,7 @@ export function AssetSearch({ type, onPick, placeholder, value, onTextChange }: 
                   if (!a) { toast("That asset can't be tracked", true); return; }
                   setItems(null); setQ(`${a.symbol} — ${a.name}`); onPick(a);
                 }}>
-                {LE.safeUrl(it.img) ? <img src={LE.safeUrl(it.img)} alt="" referrerPolicy="no-referrer" className="h-6 w-6 rounded-full" />
+                {LE.safeAssetImg(it.img) ? <img src={LE.safeAssetImg(it.img)} alt="" referrerPolicy="no-referrer" className="h-6 w-6 rounded-full" />
                   : <span className="grid h-6 w-6 place-items-center rounded-full bg-line/10 text-[9px] font-bold">{it.symbol.slice(0, 3).toUpperCase()}</span>}
                 <b className="text-sm">{it.symbol.toUpperCase()}</b><span className="truncate text-xs text-muted">{it.name}</span>
               </button>

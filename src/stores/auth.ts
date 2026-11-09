@@ -1,8 +1,9 @@
 import { create } from "zustand";
 import { onAuthStateChanged, signInWithPopup, signOut, type User } from "firebase/auth";
-import { auth, googleProvider } from "@/lib/firebase";
+import { auth, clearOfflineCache, googleProvider, writesSyncedWithin } from "@/lib/firebase";
 import { DEMO } from "@/lib/demo";
-import { toast } from "./ui";
+import { useInvest } from "./invest";
+import { confirmDialog, toast } from "./ui";
 
 interface AuthState {
   user: User | null;
@@ -21,7 +22,20 @@ export const useAuth = create<AuthState>(() => ({
       if (code !== "auth/popup-closed-by-user" && code !== "auth/cancelled-popup-request") toast(`Sign-in failed: ${code || (e as Error).message}`, true);
     }
   },
-  signOut: async () => { await signOut(auth); },
+  signOut: async () => {
+    useInvest.getState().flush();
+    const synced = await writesSyncedWithin(4000);
+    if (!synced) {
+      // Clearing the cache now would lose these edits, so they stay on this device until the same account returns.
+      const ok = await confirmDialog("Unsynced changes", "Some changes haven't reached the cloud yet. If you sign out now, they and a copy of your data stay on this device until you sign in again.", { confirmText: "Sign out", danger: true });
+      if (!ok) return;
+    }
+    await signOut(auth);
+    if (!synced) return;
+    await new Promise((resolve) => setTimeout(resolve)); // let App stop the Firestore listeners first
+    await clearOfflineCache();
+    location.reload();
+  },
 }));
 
 if (DEMO) {

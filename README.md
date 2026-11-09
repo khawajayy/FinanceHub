@@ -81,4 +81,5 @@ firestore.rules  security rules for both modules
 ## Notes
 
 - Combined net worth adds your investment equity to the net-worth register. If you also list a brokerage balance as an asset under Net Worth, it gets counted twice; keep investments in one place.
-- The Finnhub key is stored in your own ledger document and sent as a query parameter to finnhub.io, which is how Finnhub's API works.
+- The Finnhub key is stored in your own ledger document and sent as a query parameter to finnhub.io, which is how Finnhub's API works. Ledger backups leave it out, and importing a backup never changes it.
+- Signing out clears this browser's offline copy of your data and its cached prices and charts, once everything has synced. Another open Nexus tab can stop the offline copy being cleared, so close other tabs first on a shared computer.

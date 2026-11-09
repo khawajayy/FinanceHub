@@ -110,6 +110,7 @@ interface LedgerEngineApi {
   TX_TYPES: TxType[];
   makeId(): string;
   safeUrl(u: unknown): string;
+  safeAssetImg(u: unknown): string;
   isSafeId(v: unknown): boolean;
   sanitizeAsset(a: unknown): Asset | null;
   sanitizeTransaction(t: unknown, index: number): Txn | null;

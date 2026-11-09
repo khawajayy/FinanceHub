@@ -3,8 +3,10 @@ import { useEffect } from "react";
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 import { Backdrop, Logo, Shell } from "@/components/Shell";
 import { DialogHost, Toaster } from "@/components/ui";
+import { useActions } from "@/stores/actions";
 import { useAuth } from "@/stores/auth";
 import { useExpenses } from "@/stores/expenses";
+import { useUi } from "@/stores/ui";
 import { useInvest } from "@/stores/invest";
 import { usePower } from "@/stores/power";
 import { useTasks } from "@/stores/tasks";
@@ -53,6 +55,8 @@ export default function App() {
 
   // Start / stop the Firestore subscriptions with the signed-in user.
   useEffect(() => {
+    useActions.getState().reset();
+    useUi.getState().resetSession();
     if (user) { useExpenses.getState().start(user.uid); useInvest.getState().start(user.uid); usePower.getState().start(user.uid); useTasks.getState().start(user.uid); useGoals.getState().start(user.uid); useGarage.getState().start(user.uid); }
     else { useExpenses.getState().stop(); useInvest.getState().stop(); usePower.getState().stop(); useTasks.getState().stop(); useGoals.getState().stop(); useGarage.getState().stop(); }
   }, [user]);

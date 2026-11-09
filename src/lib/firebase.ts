@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { GoogleAuthProvider, browserLocalPersistence, getAuth, setPersistence } from "firebase/auth";
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
+import { clearIndexedDbPersistence, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, terminate, waitForPendingWrites } from "firebase/firestore";
 
 // Same Firebase project the old CryptoLedger used, so its ledger (ledgers/{uid}) carries over.
 // These values identify the project and are not secrets: access is enforced by
@@ -24,3 +24,21 @@ googleProvider.setCustomParameters({ prompt: "select_account" });
 export const db = initializeFirestore(app, {
   localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
 });
+
+/** True once every local write has reached the server; false if that takes longer than `ms` (usually offline). */
+export function writesSyncedWithin(ms: number) {
+  return Promise.race([
+    waitForPendingWrites(db).then(() => true, () => false),
+    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), ms)),
+  ]);
+}
+
+/** Removes the offline copy of the user's data from this browser. `db` is unusable afterwards, so reload next. */
+export async function clearOfflineCache() {
+  try {
+    await terminate(db);
+    await clearIndexedDbPersistence(db);
+  } catch (e) {
+    console.warn("Couldn't clear the offline cache (is another tab open?)", e); // that tab still holds the database
+  }
+}
