@@ -24,6 +24,26 @@
   --aurora-a: 0.55;
 }
 
+:root[data-theme="black"] {
+  color-scheme: dark;
+  --bg: 0 0 0;
+  --ink: 236 238 250;
+  --muted: 134 140 168;
+  --line: 255 255 255;
+  --glass: 255 255 255;
+  --glass-a: 0.03;
+  --glass-a2: 0.055;
+  --line-a: 0.09;
+  --cyan: 34 211 238;
+  --violet: 167 139 250;
+  --pink: 244 114 182;
+  --pos: 52 211 153;
+  --neg: 248 113 113;
+  --amber: 251 191 36;
+  --grid-a: 0.035;
+  --aurora-a: 0.22;
+}
+
 :root[data-theme="light"] {
   color-scheme: light;
   --bg: 242 244 250;

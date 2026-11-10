@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from "framer-motion";
 import {
   LayoutGrid, Wallet, ReceiptText, Landmark, LineChart, Briefcase, Star, Newspaper, BookOpen, Target, Settings2, Zap, Gauge, CalendarClock, Plug, ListTodo, Mountain, CarFront, BookMarked, Wrench,
-  Sun, Moon, LogOut, RefreshCw, Cloud, CloudOff, Plus, ShoppingBag, Settings,
+  Sun, Moon, MoonStar, LogOut, RefreshCw, Cloud, CloudOff, Plus, ShoppingBag, Settings,
 } from "lucide-react";
 import { NavLink, useLocation, useNavigate, useOutlet } from "react-router-dom";
 import { useAuth } from "@/stores/auth";
@@ -227,7 +227,7 @@ function TopBar() {
         <button className="icon-btn !h-9 !w-9 glass" onClick={toggleTheme} aria-label="Toggle theme">
           <AnimatePresence mode="wait" initial={false}>
             <motion.span key={theme} initial={{ rotate: -90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }} exit={{ rotate: 90, opacity: 0 }} transition={{ duration: 0.2 }}>
-              {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+              {theme === "dark" ? <MoonStar size={16} /> : theme === "black" ? <Sun size={16} /> : <Moon size={16} />}
             </motion.span>
           </AnimatePresence>
         </button>

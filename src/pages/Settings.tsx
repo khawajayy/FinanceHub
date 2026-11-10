@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowDown, ArrowUp, Building2, ChevronRight, Lock, LogOut, Moon, Palette, Plus, RotateCcw, Settings2, ShoppingBag, Sun, Tags, Trash2, UserRound } from "lucide-react";
+import { ArrowDown, ArrowUp, Building2, ChevronRight, Lock, LogOut, Moon, MoonStar, Palette, Plus, RotateCcw, Settings2, ShoppingBag, Sun, Tags, Trash2, UserRound } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Card, CardHeader, Segmented } from "@/components/ui";
@@ -181,7 +181,7 @@ export default function Settings() {
   const user = useAuth((s) => s.user);
   const signOut = useAuth((s) => s.signOut);
   const theme = useUi((s) => s.theme);
-  const toggleTheme = useUi((s) => s.toggleTheme);
+  const setTheme = useUi((s) => s.setTheme);
 
   const out = async () => { if (await confirmDialog("Sign out", "Sign out of Nexus on this device?", { confirmText: "Sign out" })) signOut(); };
 
@@ -193,8 +193,9 @@ export default function Settings() {
           <CardHeader title="Appearance" icon={<Palette size={16} />} />
           <div className="flex items-center gap-3 p-5 text-sm">
             <span className="text-muted">Theme</span>
-            <Segmented id="settings-theme" className="ml-auto" value={theme} onChange={(v) => v !== theme && toggleTheme()} options={[
+            <Segmented id="settings-theme" className="ml-auto" value={theme} onChange={(v) => setTheme(v)} options={[
               { value: "dark", label: <span className="flex items-center gap-1.5"><Moon size={14} /> Dark</span> },
+              { value: "black", label: <span className="flex items-center gap-1.5"><MoonStar size={14} /> Black</span> },
               { value: "light", label: <span className="flex items-center gap-1.5"><Sun size={14} /> Light</span> },
             ]} />
           </div>
