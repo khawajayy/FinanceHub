@@ -11,18 +11,22 @@ interface DialogReq {
   resolve: (v: string | boolean | null) => void;
 }
 
+export type Theme = "dark" | "black" | "light";
+const THEME_COLOR: Record<Theme, string> = { dark: "#06070f", black: "#000000", light: "#f2f4fa" };
+
 interface UiState {
   toasts: Toast[];
   dialog: DialogReq | null;
-  theme: "dark" | "light";
+  theme: Theme;
   toast: (msg: string, error?: boolean, action?: ToastAction) => void;
   dismiss: (id: number) => void;
   setDialog: (d: DialogReq | null) => void;
   toggleTheme: () => void;
+  setTheme: (t: Theme) => void;
 }
 
 let seq = 0;
-const initialTheme = (document.documentElement.dataset.theme as "dark" | "light") || "dark";
+const initialTheme = (document.documentElement.dataset.theme as Theme) || "dark";
 
 export const useUi = create<UiState>((set, get) => ({
   toasts: [],
@@ -35,9 +39,10 @@ export const useUi = create<UiState>((set, get) => ({
   },
   dismiss: (id) => set({ toasts: get().toasts.filter((t) => t.id !== id) }),
   setDialog: (dialog) => set({ dialog }),
-  toggleTheme: () => {
-    const theme = get().theme === "dark" ? "light" : "dark";
+  toggleTheme: () => get().setTheme(get().theme === "dark" ? "black" : get().theme === "black" ? "light" : "dark"),
+  setTheme: (theme) => {
     document.documentElement.dataset.theme = theme;
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", THEME_COLOR[theme]);
     try { localStorage.setItem("nexus.theme", theme); } catch { /* private mode */ }
     set({ theme });
   },
