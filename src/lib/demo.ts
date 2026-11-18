@@ -3,7 +3,7 @@
  * sample data, without signing in and without touching Firestore.
  * `import.meta.env.DEV` is false in production builds, so this is compiled out.
  */
-import type { Account, Bucket, ExpenseTxn } from "@/engine/expense-engine";
+import type { Account, Bucket, ExpenseTxn, UpcomingExpense } from "@/engine/expense-engine";
 import { pad } from "@/engine/expense-engine";
 
 export const DEMO = import.meta.env.DEV && typeof location !== "undefined" && new URLSearchParams(location.search).has("demo");
@@ -17,7 +17,7 @@ const t = (back: number, d: number, description: string, amount: number, categor
 
 const H = "Housing & Utilities", F = "Food & Groceries", O = "Outside Food (Takeaway/Dining Out)", T = "Transport", L = "Health & Lifestyle", S = "Savings, Investment & Other", D = "Debt & Loans";
 
-export function demoExpenses(): { txns: ExpenseTxn[]; accounts: Account[]; buckets: Bucket[] } {
+export function demoExpenses(): { txns: ExpenseTxn[]; accounts: Account[]; buckets: Bucket[]; upcoming: UpcomingExpense[] } {
   const txns: ExpenseTxn[] = [];
   const umrah = (back: number, d: number, description: string, amount: number, category: string) => ({ ...t(back, d, description, amount, category), bucket: "k1" });
   txns.push(
@@ -46,6 +46,13 @@ export function demoExpenses(): { txns: ExpenseTxn[]; accounts: Account[]; bucke
     buckets: [
       { id: "k1", name: "Umrah", emoji: "🕋", color: "#34d399", budget: 650000, status: "active", created_at: 2, in_expenses: false },
       { id: "k2", name: "Bilal's wedding", emoji: "💍", color: "#f472b6", budget: null, status: "closed", created_at: 1 },
+    ],
+    upcoming: [
+      { id: "u1", title: "Ziyarat transport & guide", amount: 35000, category: "Transport", date: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-25`, bucket: "k1", notes: "Private GMC for Makkah & Madinah sites", status: "planned", priority: "high", created_at: 1 },
+      { id: "u2", title: "Ajwa dates & gifts from Madinah", amount: 40000, category: "Food & Groceries", date: null, bucket: "k1", notes: "5kg Ajwa, prayer mats, perfumes", status: "planned", priority: "med", created_at: 2 },
+      { id: "u3", title: "Annual car insurance renewal", amount: 48000, category: "Transport", date: `${now.getFullYear()}-${pad(now.getMonth() + 2 > 12 ? 1 : now.getMonth() + 2)}-10`, bucket: null, notes: "EFU or Adamjee comprehensive insurance", status: "planned", priority: "high", created_at: 3 },
+      { id: "u4", title: "Ergonomic chair (Sihoo Doro)", amount: 65000, category: "Health & Lifestyle", date: null, bucket: null, notes: "Wait for 11.11 / Black Friday sale", status: "planned", priority: "low", created_at: 4 },
+      { id: "u5", title: "Winter jacket for northern trip", amount: 18000, category: "Health & Lifestyle", date: null, bucket: null, notes: "Down jacket / fleece", status: "converted", priority: "low", created_at: 5 },
     ],
   };
 }

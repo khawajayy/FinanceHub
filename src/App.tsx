@@ -23,6 +23,7 @@ import ExpenseOverview from "@/modules/expenses/Overview";
 import ExpenseTransactions from "@/modules/expenses/Transactions";
 import NetWorth from "@/modules/expenses/NetWorth";
 import Buckets from "@/modules/expenses/Buckets";
+import UpcomingExpenses from "@/modules/expenses/Upcoming";
 import Settings from "@/pages/Settings";
 import { ExpenseTxnModal } from "@/modules/expenses/TxnModal";
 import { PFCalculator } from "@/modules/expenses/PFCalculator";
@@ -71,6 +72,7 @@ export default function App() {
               <Route path="expenses/transactions" element={<ExpenseTransactions />} />
               <Route path="expenses/networth" element={<NetWorth />} />
               <Route path="expenses/buckets" element={<Buckets />} />
+              <Route path="expenses/upcoming" element={<UpcomingExpenses />} />
               <Route path="settings" element={<Settings />} />
               <Route path="invest" element={<InvestDashboard />} />
               <Route path="invest/holdings" element={<Holdings />} />

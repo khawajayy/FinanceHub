@@ -26,6 +26,26 @@ export type BankSource = string;
 export const AUTO_BANK = "auto";
 export const NO_BANK = "none";
 
+export type UpcomingPriority = "low" | "med" | "high";
+export type UpcomingStatus = "planned" | "converted" | "dropped";
+
+/** Future or upcoming expense to think about, plan for, or assign to a bucket. Kept separate from actual transactions. */
+export interface UpcomingExpense {
+  id: string;
+  title: string;
+  amount: number;
+  category: string | null;
+  date: string | null; // target/expected date YYYY-MM-DD
+  bucket: string | null; // Bucket id, optional
+  notes: string;
+  status: UpcomingStatus;
+  priority: UpcomingPriority;
+  created_at: number; // ms
+  converted_txn_id?: string | null;
+}
+
+export const UPCOMING_PRIORITIES: readonly UpcomingPriority[] = ["low", "med", "high"];
+
 /** A temporary tag for spending that belongs together (a trip, a wedding, a move). */
 export interface Bucket {
   id: string;
@@ -80,6 +100,43 @@ export function bucketSummary(txns: ExpenseTxn[], bucketId: string) {
   const { income: received, expenses: spent } = totals(items);
   const dates = items.map((t) => t.txn_date).sort();
   return { items, count: items.length, spent, received, net: spent - received, first: dates[0] || null, last: dates[dates.length - 1] || null, categories: byCategory(items) };
+}
+
+/** Summary of planned/upcoming expenses, optionally scoped to a bucket or unbucketed ("__none__"). */
+export function upcomingSummary(items: UpcomingExpense[], bucketId?: string) {
+  let list = items.filter((x) => x.status === "planned");
+  if (bucketId !== undefined) {
+    list = bucketId === "__none__" ? list.filter((x) => !x.bucket) : list.filter((x) => x.bucket === bucketId);
+  }
+  const total = list.reduce((sum, x) => sum + (Number(x.amount) || 0), 0);
+  return {
+    items: list,
+    count: list.length,
+    total,
+  };
+}
+
+export function filterUpcoming(items: UpcomingExpense[], query: string, bucket = "", status: "all" | UpcomingStatus = "planned") {
+  let list = items;
+  if (status !== "all") list = list.filter((x) => x.status === status);
+  if (bucket === "__none__") list = list.filter((x) => !x.bucket);
+  else if (bucket) list = list.filter((x) => x.bucket === bucket);
+  const q = query.toLowerCase().trim();
+  if (q) list = list.filter((x) => x.title.toLowerCase().includes(q) || x.notes.toLowerCase().includes(q) || (x.category || "").toLowerCase().includes(q));
+  return list;
+}
+
+export function targetDateLabel(date: string | null, todayIso: string) {
+  if (!date) return "Flexible / Someday";
+  const [ty, tm, td] = todayIso.split("-").map(Number);
+  const [dy, dm, dd] = date.split("-").map(Number);
+  const diff = Math.round((+new Date(dy, dm - 1, dd) - +new Date(ty, tm - 1, td)) / 86400000);
+  if (diff === 0) return "Due today";
+  if (diff === 1) return "Due tomorrow";
+  if (diff === -1) return "1 day ago";
+  if (diff < 0) return `${-diff}d ago`;
+  if (diff < 7) return `In ${diff} days`;
+  return new Date(dy, dm - 1, dd).toLocaleDateString(undefined, { day: "numeric", month: "short", year: dy !== ty ? "numeric" : undefined });
 }
 
 export const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
