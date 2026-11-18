@@ -1,13 +1,15 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { Archive, ArchiveRestore, ChevronDown, Pencil, Plus, ShoppingBag, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, CalendarClock, ChevronDown, Pencil, Plus, ShoppingBag, Trash2, Wallet } from "lucide-react";
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { AmountInput, Card, Empty, Field, Modal } from "@/components/ui";
-import { BUCKET_COLORS, bucketSummary, categoryColor, categoryEmoji, type Bucket } from "@/engine/expense-engine";
+import { BUCKET_COLORS, bucketSummary, categoryColor, categoryEmoji, targetDateLabel, todayISO, upcomingSummary, type Bucket, type UpcomingExpense } from "@/engine/expense-engine";
 import { cx, fmtAmtStr, fmtRs, stripNum } from "@/lib/format";
 import { useActions } from "@/stores/actions";
 import { useExpenses } from "@/stores/expenses";
 import { confirmDialog, toast } from "@/stores/ui";
 import { LoadingGrid, PageTitle } from "./common";
+import { UpcomingModal } from "./UpcomingModal";
 
 const EMOJIS = ["🕋", "✈️", "💍", "🏠", "🎓", "🚗", "🎉", "🏥", "👶", "🧺"];
 const shortDate = (d: string) => new Date(d + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" });
@@ -104,14 +106,19 @@ export function BucketBar({ spent, budget, color }: { spent: number; budget: num
   );
 }
 
-function BucketCard({ b, delay, onEdit }: { b: Bucket; delay: number; onEdit: () => void }) {
+function BucketCard({ b, delay, onEdit, onPlan }: { b: Bucket; delay: number; onEdit: () => void; onPlan: (bucketId: string) => void }) {
   const txns = useExpenses((s) => s.txns);
+  const upcoming = useExpenses((s) => s.upcoming);
   const categories = useExpenses((s) => s.categories);
   const update = useExpenses((s) => s.updateBucket);
   const del = useExpenses((s) => s.deleteBucket);
+  const convert = useExpenses((s) => s.convertUpcomingToExpense);
+  const undoConvert = useExpenses((s) => s.undoConvertUpcoming);
   const openExpense = useActions((s) => s.openExpense);
   const [open, setOpen] = useState(false);
+  const [tab, setTab] = useState<"txns" | "planned">("txns");
   const s = bucketSummary(txns, b.id);
+  const up = upcomingSummary(upcoming, b.id);
   const closed = b.status === "closed";
   const left = b.budget != null ? b.budget - s.net : null;
   const items = [...s.items].sort((x, y) => y.txn_date.localeCompare(x.txn_date) || y.created_at - x.created_at);
@@ -132,6 +139,14 @@ function BucketCard({ b, delay, onEdit }: { b: Bucket; delay: number; onEdit: ()
     toast(`Bucket "${b.name}" deleted`);
   };
 
+  const handleConvertUpcoming = async (item: UpcomingExpense) => {
+    const txnId = await convert(item.id);
+    toast(`Logged "${item.title}" (${fmtRs(item.amount)}) to expenses`, false, {
+      label: "Undo",
+      onClick: () => undoConvert(item.id, txnId),
+    });
+  };
+
   return (
     <Card delay={delay} className={cx(closed && "opacity-75")}>
       <div className="p-5">
@@ -145,6 +160,7 @@ function BucketCard({ b, delay, onEdit }: { b: Bucket; delay: number; onEdit: ()
             </div>
             <div className="text-xs text-muted">
               {s.count ? <>{s.count} transaction{s.count === 1 ? "" : "s"} · {s.first === s.last ? shortDate(s.first!) : `${shortDate(s.first!)} – ${shortDate(s.last!)}`}</> : "No transactions yet"}
+              {up.count > 0 && <span className="text-amber ml-2">· {up.count} planned</span>}
             </div>
           </div>
           <div className="flex shrink-0">
@@ -156,11 +172,17 @@ function BucketCard({ b, delay, onEdit }: { b: Bucket; delay: number; onEdit: ()
           </div>
         </div>
 
-        <div className="mt-4 flex items-end gap-3">
+        <div className="mt-4 flex flex-wrap items-end gap-4">
           <div>
             <div className="label !text-[10px]">Spent</div>
             <div className="num text-2xl font-semibold">{fmtRs(s.net)}</div>
           </div>
+          {up.count > 0 && (
+            <div className="border-l border-line/10 pl-3">
+              <div className="label !text-[10px] text-amber">Planned ({up.count})</div>
+              <div className="num text-lg font-semibold text-amber">{fmtRs(up.total)}</div>
+            </div>
+          )}
           {b.budget != null && (
             <div className="ml-auto text-right text-xs">
               <div className="text-muted">of {fmtRs(b.budget)}</div>
@@ -182,11 +204,20 @@ function BucketCard({ b, delay, onEdit }: { b: Bucket; delay: number; onEdit: ()
           </div>
         )}
 
-        <div className="mt-4 flex gap-2">
-          {!closed && <button className="btn btn-sm" onClick={() => openExpense(null, b.id)}><Plus size={13} /> Add expense</button>}
-          {s.count > 0 && (
-            <button className="btn btn-sm btn-ghost ml-auto" onClick={() => setOpen(!open)}>
-              {open ? "Hide" : "Show"} transactions <ChevronDown size={13} className={cx("transition", open && "rotate-180")} />
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          {!closed && (
+            <>
+              <button className="btn btn-sm" onClick={() => openExpense(null, b.id)}>
+                <Plus size={13} /> Add expense
+              </button>
+              <button className="btn btn-sm btn-ghost inline-flex items-center gap-1" onClick={() => onPlan(b.id)}>
+                <CalendarClock size={13} /> Plan future
+              </button>
+            </>
+          )}
+          {(s.count > 0 || up.count > 0) && (
+            <button className="btn btn-sm btn-ghost ml-auto inline-flex items-center gap-1" onClick={() => setOpen(!open)}>
+              {open ? "Hide" : "Show"} details <ChevronDown size={13} className={cx("transition", open && "rotate-180")} />
             </button>
           )}
         </div>
@@ -194,15 +225,61 @@ function BucketCard({ b, delay, onEdit }: { b: Bucket; delay: number; onEdit: ()
       <AnimatePresence initial={false}>
         {open && (
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden border-t hairline">
-            <div className="divide-y divide-line/5">
-              {items.map((t) => (
-                <button key={t.id} onClick={() => openExpense(t)} className="flex w-full items-center gap-3 px-5 py-2.5 text-left transition hover:bg-line/[.03]">
-                  <span className="text-base">{t.direction === "IN" ? "💰" : categoryEmoji(t.category, categories)}</span>
-                  <div className="min-w-0 flex-1"><div className="truncate text-sm">{t.description}</div><div className="text-[11px] text-muted">{shortDate(t.txn_date)}</div></div>
-                  <span className={cx("num text-sm font-semibold", t.direction === "IN" ? "pos" : "neg")}>{t.direction === "IN" ? "+" : "−"} {fmtRs(t.amount)}</span>
+            {(s.count > 0 && up.count > 0) && (
+              <div className="flex border-b border-line/10 bg-line/[.02] px-4 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setTab("txns")}
+                  className={cx("border-b-2 px-3 pb-2 text-xs font-semibold transition", tab === "txns" ? "border-cyan text-ink" : "border-transparent text-muted hover:text-ink")}
+                >
+                  Transactions ({s.count})
                 </button>
-              ))}
-            </div>
+                <button
+                  type="button"
+                  onClick={() => setTab("planned")}
+                  className={cx("border-b-2 px-3 pb-2 text-xs font-semibold transition", tab === "planned" ? "border-amber text-amber" : "border-transparent text-muted hover:text-ink")}
+                >
+                  Planned ({up.count})
+                </button>
+              </div>
+            )}
+
+            {tab === "planned" || (s.count === 0 && up.count > 0) ? (
+              <div className="divide-y divide-line/5">
+                {up.items.map((u) => (
+                  <div key={u.id} className="flex items-center justify-between gap-3 px-5 py-3 text-xs">
+                    <div>
+                      <div className="font-medium text-ink">{u.title}</div>
+                      <div className="text-[11px] text-muted">
+                        {u.date ? `Target: ${targetDateLabel(u.date, todayISO())}` : "Flexible date"}
+                        {u.notes && ` · ${u.notes}`}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="num font-semibold text-ink">{fmtRs(u.amount)}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleConvertUpcoming(u)}
+                        className="btn btn-primary btn-sm !py-1 !px-2.5 !text-[11px] inline-flex items-center gap-1"
+                        title="Log this expense now"
+                      >
+                        <Wallet size={11} /> Log
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="divide-y divide-line/5">
+                {items.map((t) => (
+                  <button key={t.id} onClick={() => openExpense(t)} className="flex w-full items-center gap-3 px-5 py-2.5 text-left transition hover:bg-line/[.03]">
+                    <span className="text-base">{t.direction === "IN" ? "💰" : categoryEmoji(t.category, categories)}</span>
+                    <div className="min-w-0 flex-1"><div className="truncate text-sm">{t.description}</div><div className="text-[11px] text-muted">{shortDate(t.txn_date)}</div></div>
+                    <span className={cx("num text-sm font-semibold", t.direction === "IN" ? "pos" : "neg")}>{t.direction === "IN" ? "+" : "−"} {fmtRs(t.amount)}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
@@ -214,13 +291,24 @@ export default function Buckets() {
   const loaded = useExpenses((s) => s.loaded);
   const buckets = useExpenses((s) => s.buckets);
   const [modal, setModal] = useState<{ open: boolean; bucket: Bucket | null }>({ open: false, bucket: null });
+  const [planModal, setPlanModal] = useState<{ open: boolean; bucketId?: string }>({ open: false });
   const active = buckets.filter((b) => b.status === "active");
   const closed = buckets.filter((b) => b.status === "closed");
 
   return (
     <>
       <PageTitle title="Buckets" sub="Group spending for a trip or event. Delete a bucket when you're done; its transactions stay."
-        right={<button className="btn btn-primary" onClick={() => setModal({ open: true, bucket: null })}><Plus size={15} /> New bucket</button>} />
+        right={
+          <div className="flex items-center gap-2">
+            <Link to="/expenses/upcoming" className="btn btn-ghost inline-flex items-center gap-1.5 text-xs">
+              <CalendarClock size={14} /> Upcoming Expenses
+            </Link>
+            <button className="btn btn-primary" onClick={() => setModal({ open: true, bucket: null })}>
+              <Plus size={15} /> New bucket
+            </button>
+          </div>
+        }
+      />
       {!loaded ? <LoadingGrid /> : buckets.length === 0 ? (
         <Card>
           <Empty icon="🧺" title="No buckets yet" sub="Make one for something like Umrah or a wedding, then tag expenses with it as you go. Totals run across months."
@@ -230,20 +318,53 @@ export default function Buckets() {
         <div className="space-y-6">
           {active.length > 0 && (
             <div className="grid gap-4 lg:grid-cols-2">
-              {active.map((b, i) => <BucketCard key={b.id} b={b} delay={i * 0.05} onEdit={() => setModal({ open: true, bucket: b })} />)}
+              {active.map((b, i) => (
+                <BucketCard
+                  key={b.id}
+                  b={b}
+                  delay={i * 0.05}
+                  onEdit={() => setModal({ open: true, bucket: b })}
+                  onPlan={(bucketId) => setPlanModal({ open: true, bucketId })}
+                />
+              ))}
             </div>
           )}
           {closed.length > 0 && (
             <div>
               <div className="label mb-3">Closed</div>
               <div className="grid gap-4 lg:grid-cols-2">
-                {closed.map((b, i) => <BucketCard key={b.id} b={b} delay={i * 0.05} onEdit={() => setModal({ open: true, bucket: b })} />)}
+                {closed.map((b, i) => (
+                  <BucketCard
+                    key={b.id}
+                    b={b}
+                    delay={i * 0.05}
+                    onEdit={() => setModal({ open: true, bucket: b })}
+                    onPlan={(bucketId) => setPlanModal({ open: true, bucketId })}
+                  />
+                ))}
               </div>
             </div>
           )}
         </div>
       )}
+
+      <div className="mt-6 flex items-center justify-between rounded-2xl border border-line/10 bg-line/[.02] p-4 text-xs text-muted">
+        <div className="flex items-center gap-2">
+          <CalendarClock size={15} className="text-cyan" />
+          <span>Planning future purchases or expenses to think about? Manage them in Upcoming Expenses.</span>
+        </div>
+        <Link to="/expenses/upcoming" className="font-semibold text-cyan hover:underline shrink-0 ml-4">
+          Open Upcoming Expenses →
+        </Link>
+      </div>
+
       <BucketModal open={modal.open} bucket={modal.bucket} onClose={() => setModal((m) => ({ ...m, open: false }))} />
+      <UpcomingModal
+        open={planModal.open}
+        upcoming={null}
+        initialBucketId={planModal.bucketId}
+        onClose={() => setPlanModal({ open: false })}
+      />
     </>
   );
 }

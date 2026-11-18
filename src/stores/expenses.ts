@@ -5,6 +5,7 @@ import { DEMO, demoExpenses } from "@/lib/demo";
 import {
   AUTO_BANK, CATEGORIES, DEBT_CATEGORY, applyMoves, findDebt, isProvidentFund, orderBanks, parseDebtPayment, parseDebtTitle, planBankMoves, todayISO,
   type Account, type AccountKind, type BankMoves, type BankSource, type Bucket, type Category, type Direction, type ExpenseTxn,
+  type UpcomingExpense, type UpcomingPriority, type UpcomingStatus,
 } from "@/engine/expense-engine";
 import { toast } from "./ui";
 
@@ -13,6 +14,7 @@ import { toast } from "./ui";
  *   expenses/{uid}/transactions/{id}  { txn_date, description, amount, category, direction, created_at, bucket?, bank_moves? }
  *   expenses/{uid}/accounts/{id}      { name, kind, balance, sort_order, created_at }
  *   expenses/{uid}/buckets/{id}       { name, emoji, color, budget, status, created_at }
+ *   expenses/{uid}/upcoming/{id}      { title, amount, category, date, bucket, notes, status, priority, created_at, converted_txn_id }
  *   expenses/{uid}/prefs/main         { categories: [{ key, emoji, color }], bank_priority: [accountId], auto_bank: bool }  (missing = defaults)
  * Every change is applied to local state first (instant UI), then written as one
  * batch. Firestore's offline cache queues the batch while offline.
@@ -24,8 +26,17 @@ export interface TxnInput {
   source?: BankSource;
 }
 export interface BucketInput { name: string; emoji: string; color: string; budget: number | null; in_expenses?: boolean }
+export interface UpcomingInput {
+  title: string;
+  amount: number;
+  category?: string | null;
+  date?: string | null;
+  bucket?: string | null;
+  notes?: string;
+  priority?: UpcomingPriority;
+}
 
-type Coll = "transactions" | "accounts" | "buckets";
+type Coll = "transactions" | "accounts" | "buckets" | "upcoming";
 type Op =
   | { kind: "set"; coll: Coll; id: string; data: Record<string, unknown> }
   | { kind: "update"; coll: Coll; id: string; data: Record<string, unknown> }
@@ -36,6 +47,7 @@ interface ExpenseState {
   txns: ExpenseTxn[];
   accounts: Account[];
   buckets: Bucket[];
+  upcoming: UpcomingExpense[];
   categories: Category[];
   /** Bank account ids, first = drawn from first. */
   bankPriority: string[];
@@ -57,6 +69,11 @@ interface ExpenseState {
   updateBucket: (id: string, patch: Partial<BucketInput> & { status?: Bucket["status"] }) => Promise<void>;
   /** Removes the bucket; its transactions stay, just untagged. Returns how many were untagged. */
   deleteBucket: (id: string) => Promise<number>;
+  addUpcoming: (u: UpcomingInput) => Promise<string>;
+  updateUpcoming: (id: string, patch: Partial<UpcomingInput> & { status?: UpcomingStatus }) => Promise<void>;
+  deleteUpcoming: (id: string) => Promise<void>;
+  convertUpcomingToExpense: (id: string, overrides?: { bank?: BankSource; date?: string }) => Promise<string>;
+  undoConvertUpcoming: (upcomingId: string, txnId: string) => Promise<void>;
   /** Saves the list; `renames` (old → new) and `removed` (→ uncategorised) are applied to existing transactions. */
   saveCategories: (next: Category[], renames?: Record<string, string>, removed?: string[]) => Promise<void>;
   setBankPriority: (ids: string[]) => Promise<void>;
@@ -68,6 +85,14 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 const sortAccounts = (a: Account[]) => [...a].sort((x, y) => x.sort_order - y.sort_order || x.created_at - y.created_at);
 /** Active first, newest first. */
 const sortBuckets = (b: Bucket[]) => [...b].sort((x, y) => (x.status === y.status ? y.created_at - x.created_at : x.status === "active" ? -1 : 1));
+/** Planned first (soonest date first, then newest), converted last. */
+const sortUpcoming = (list: UpcomingExpense[]) => [...list].sort((x, y) => {
+  if (x.status !== y.status) return x.status === "planned" ? -1 : 1;
+  if (x.date && y.date) return x.date.localeCompare(y.date);
+  if (x.date && !y.date) return -1;
+  if (!x.date && y.date) return 1;
+  return y.created_at - x.created_at;
+});
 const cleanCategories = (raw: unknown): Category[] => {
   const list = Array.isArray(raw) ? raw.filter((c): c is Category => !!c && typeof c.key === "string" && c.key.trim() !== "") : [];
   return list.length ? list.map((c) => ({ key: c.key, emoji: c.emoji || "🏷️", color: c.color || "#94a3b8" })) : [...CATEGORIES];
@@ -82,18 +107,19 @@ function onWriteError(e: { code?: string }) {
 
 export const useExpenses = create<ExpenseState>((set, get) => {
   function applyLocal(ops: Op[]) {
-    let txns = get().txns, accounts = get().accounts, buckets = get().buckets;
+    let txns = get().txns, accounts = get().accounts, buckets = get().buckets, upcoming = get().upcoming;
     for (const op of ops) {
-      const list = (op.coll === "transactions" ? txns : op.coll === "accounts" ? accounts : buckets) as { id: string }[];
+      const list = (op.coll === "transactions" ? txns : op.coll === "accounts" ? accounts : op.coll === "buckets" ? buckets : upcoming) as { id: string }[];
       let next: { id: string }[];
       if (op.kind === "set") next = [...list.filter((x) => x.id !== op.id), { id: op.id, ...op.data }];
       else if (op.kind === "update") next = list.map((x) => (x.id === op.id ? { ...x, ...op.data } : x));
       else next = list.filter((x) => x.id !== op.id);
       if (op.coll === "transactions") txns = next as ExpenseTxn[];
       else if (op.coll === "accounts") accounts = sortAccounts(next as Account[]);
-      else buckets = sortBuckets(next as Bucket[]);
+      else if (op.coll === "buckets") buckets = sortBuckets(next as Bucket[]);
+      else upcoming = sortUpcoming(next as UpcomingExpense[]);
     }
-    set({ txns, accounts, buckets });
+    set({ txns, accounts, buckets, upcoming });
   }
 
   function commit(ops: Op[]) {
@@ -140,19 +166,39 @@ export const useExpenses = create<ExpenseState>((set, get) => {
     in_expenses: b.in_expenses !== false,
   });
 
+  const upcomingData = (u: UpcomingInput) => ({
+    title: u.title.trim().slice(0, 200),
+    amount: round2(Math.max(0, Number(u.amount) || 0)),
+    category: u.category || null,
+    date: typeof u.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(u.date) ? u.date : null,
+    bucket: u.bucket || null,
+    notes: (u.notes || "").slice(0, 2000),
+    priority: u.priority === "high" || u.priority === "low" ? u.priority : "med",
+  });
+
   const accountData = (kind: AccountKind, name: string, balance: number) => ({
     name: name.slice(0, 60), kind, balance: round2(balance),
     sort_order: get().accounts.filter((a) => a.kind === kind).length, created_at: Date.now(),
   });
 
   return {
-    uid: null, txns: [], accounts: [], buckets: [], categories: [...CATEGORIES], bankPriority: [], autoBank: true, loaded: false, error: null,
+    uid: null, txns: [], accounts: [], buckets: [], upcoming: [], categories: [...CATEGORIES], bankPriority: [], autoBank: true, loaded: false, error: null,
 
     start: (uid) => {
       if (get().uid === uid) return;
       get().stop();
       set({ uid, loaded: false, error: null });
-      if (DEMO) { const d = demoExpenses(); set({ txns: d.txns, accounts: sortAccounts(d.accounts), buckets: sortBuckets(d.buckets), loaded: true }); return; }
+      if (DEMO) {
+        const d = demoExpenses();
+        set({
+          txns: d.txns,
+          accounts: sortAccounts(d.accounts),
+          buckets: sortBuckets(d.buckets),
+          upcoming: sortUpcoming(d.upcoming || []),
+          loaded: true,
+        });
+        return;
+      }
       let gotTx = false, gotAc = false;
       const done = () => gotTx && gotAc && set({ loaded: true });
       const onErr = (e: Error) => { console.error(e); set({ error: e.message, loaded: true }); };
@@ -169,6 +215,9 @@ export const useExpenses = create<ExpenseState>((set, get) => {
         onSnapshot(collection(db, "expenses", uid, "buckets"), (snap) => {
           set({ buckets: sortBuckets(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Bucket, "id">) }))) });
         }, (e) => console.error(e)),
+        onSnapshot(collection(db, "expenses", uid, "upcoming"), (snap) => {
+          set({ upcoming: sortUpcoming(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<UpcomingExpense, "id">) }))) });
+        }, (e) => console.error(e)),
         onSnapshot(doc(db, "expenses", uid, "prefs", "main"), (snap) => {
           const d = snap.data();
           set({
@@ -180,7 +229,7 @@ export const useExpenses = create<ExpenseState>((set, get) => {
       ];
     },
 
-    stop: () => { unsubs.forEach((u) => u()); unsubs = []; set({ uid: null, txns: [], accounts: [], buckets: [], categories: [...CATEGORIES], bankPriority: [], autoBank: true, loaded: false }); },
+    stop: () => { unsubs.forEach((u) => u()); unsubs = []; set({ uid: null, txns: [], accounts: [], buckets: [], upcoming: [], categories: [...CATEGORIES], bankPriority: [], autoBank: true, loaded: false }); },
 
     addTxn: async (t) => {
       const accounts = get().accounts;
@@ -269,11 +318,77 @@ export const useExpenses = create<ExpenseState>((set, get) => {
 
     deleteBucket: async (id) => {
       const tagged = get().txns.filter((t) => t.bucket === id);
+      const taggedUpcoming = get().upcoming.filter((u) => u.bucket === id);
       commit([
         ...tagged.map((t): Op => ({ kind: "update", coll: "transactions", id: t.id, data: { bucket: null } })),
+        ...taggedUpcoming.map((u): Op => ({ kind: "update", coll: "upcoming", id: u.id, data: { bucket: null } })),
         { kind: "delete", coll: "buckets", id },
       ]);
       return tagged.length;
+    },
+
+    addUpcoming: async (u) => {
+      const id = newId();
+      commit([{ kind: "set", coll: "upcoming", id, data: { ...upcomingData(u), status: "planned", created_at: Date.now() } }]);
+      return id;
+    },
+
+    updateUpcoming: async (id, patch) => {
+      const cur = get().upcoming.find((x) => x.id === id);
+      if (!cur) return;
+      commit([{ kind: "update", coll: "upcoming", id, data: { ...upcomingData({ ...cur, ...patch }), status: patch.status || cur.status } }]);
+    },
+
+    deleteUpcoming: async (id) => {
+      commit([{ kind: "delete", coll: "upcoming", id }]);
+    },
+
+    convertUpcomingToExpense: async (id, overrides) => {
+      const u = get().upcoming.find((x) => x.id === id);
+      if (!u) return "";
+      const txnId = newId();
+      const accounts = get().accounts;
+      const src = overrides?.bank || AUTO_BANK;
+      const moves = plan(u.amount, "OUT", src, accounts);
+      const date = overrides?.date || todayISO();
+
+      const ops: Op[] = [
+        {
+          kind: "set",
+          coll: "transactions",
+          id: txnId,
+          data: {
+            txn_date: date,
+            description: u.title,
+            amount: round2(u.amount),
+            category: u.category,
+            direction: "OUT",
+            bucket: u.bucket,
+            bank_moves: movesOrNull(moves),
+            created_at: Date.now(),
+          },
+        },
+        ...balanceOps(accounts, applyMoves(accounts, moves)),
+        {
+          kind: "update",
+          coll: "upcoming",
+          id: u.id,
+          data: { status: "converted", converted_txn_id: txnId },
+        },
+      ];
+      commit(ops);
+      return txnId;
+    },
+
+    undoConvertUpcoming: async (upcomingId, txnId) => {
+      const old = get().txns.find((x) => x.id === txnId);
+      const accounts = get().accounts;
+      const ops: Op[] = [
+        { kind: "delete", coll: "transactions", id: txnId },
+        ...balanceOps(accounts, applyMoves(accounts, old?.bank_moves, -1)),
+        { kind: "update", coll: "upcoming", id: upcomingId, data: { status: "planned", converted_txn_id: null } },
+      ];
+      commit(ops);
     },
 
     saveCategories: async (next, renames = {}, removed = []) => {

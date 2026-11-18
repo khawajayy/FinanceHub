@@ -45,6 +45,7 @@ const NAV: { group: string; items: { to: string; label: string; icon: ReactNode;
       { to: "/expenses/transactions", label: "Transactions", icon: <ReceiptText size={18} /> },
       { to: "/expenses/networth", label: "Net Worth", icon: <Landmark size={18} /> },
       { to: "/expenses/buckets", label: "Buckets", icon: <ShoppingBag size={18} /> },
+      { to: "/expenses/upcoming", label: "Upcoming", icon: <CalendarClock size={18} /> },
     ],
   },
   {

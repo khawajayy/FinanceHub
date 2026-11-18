@@ -3,6 +3,7 @@ import {
   accountTotals, bucketSummary, byCategory, calculatePF, categoryColor, categoryEmoji, countsInExpenses, filterTxns, separateBucketIds, groupByDay, monthRange, parseDebtPayment,
   parseDebtTitle, shiftMonth, toCSV, totals, type Account, type ExpenseTxn,
   AUTO_BANK, NO_BANK, applyMoves, orderBanks, planBankMoves, sourceOf,
+  filterUpcoming, targetDateLabel, upcomingSummary, type UpcomingExpense,
 } from "../src/engine/expense-engine";
 
 const tx = (p: Partial<ExpenseTxn>): ExpenseTxn => ({
@@ -96,6 +97,80 @@ describe("expense engine", () => {
     const r = calculatePF({ initialBalance: 1000, empMonthly: 0, employerMonthly: 0, years: 1, annualRatePct: 12, annualIncrementPct: 0, taxEnabled: true, taxRatePct: 10, taxScope: "interest" });
     expect(r.totalInterest).toBeCloseTo(1000 * (Math.pow(1.01, 12) - 1), 6);
     expect(r.taxDeduction).toBeCloseTo(r.totalInterest * 0.1, 6);
+  });
+});
+
+const up = (p: Partial<UpcomingExpense>): UpcomingExpense => ({
+  id: Math.random().toString(36).slice(2),
+  title: "Item",
+  amount: 100,
+  category: "Transport",
+  date: "2026-08-01",
+  bucket: null,
+  notes: "",
+  status: "planned",
+  priority: "med",
+  created_at: Date.now(),
+  ...p,
+});
+
+describe("upcoming / planned expenses", () => {
+  test("upcomingSummary sums only planned items and supports bucket filter", () => {
+    const items: UpcomingExpense[] = [
+      up({ title: "Car service", amount: 12000, bucket: "umrah", status: "planned" }),
+      up({ title: "Hotel booked", amount: 35000, bucket: "umrah", status: "converted" }),
+      up({ title: "Luggage", amount: 8000, bucket: "umrah", status: "dropped" }),
+      up({ title: "Noise cancelling headphones", amount: 15000, bucket: null, status: "planned" }),
+    ];
+
+    // All planned items across all buckets
+    const overall = upcomingSummary(items);
+    expect(overall.count).toBe(2);
+    expect(overall.total).toBe(27000);
+
+    // Scoped to "umrah"
+    const umrahOnly = upcomingSummary(items, "umrah");
+    expect(umrahOnly.count).toBe(1);
+    expect(umrahOnly.total).toBe(12000);
+
+    // Unbucketed ("__none__")
+    const standalone = upcomingSummary(items, "__none__");
+    expect(standalone.count).toBe(1);
+    expect(standalone.total).toBe(15000);
+  });
+
+  test("filterUpcoming filters by status, bucket, and search query", () => {
+    const items: UpcomingExpense[] = [
+      up({ title: "MacBook Pro M4", amount: 350000, notes: "Wait for official launch", category: "Savings, Investment & Other" }),
+      up({ title: "Flight tickets", amount: 180000, bucket: "trip2026", status: "converted", notes: "Bought via PIA" }),
+      up({ title: "Tent rental", amount: 5000, bucket: "trip2026", status: "planned" }),
+    ];
+
+    expect(filterUpcoming(items, "", "", "planned")).toHaveLength(2);
+    expect(filterUpcoming(items, "", "", "converted")).toHaveLength(1);
+    expect(filterUpcoming(items, "", "", "all")).toHaveLength(3);
+
+    // Filter by bucket
+    expect(filterUpcoming(items, "", "trip2026", "all")).toHaveLength(2);
+    expect(filterUpcoming(items, "", "__none__", "all")).toHaveLength(1);
+
+    // Search query matches title, notes, or category
+    expect(filterUpcoming(items, "macbook", "", "all")).toHaveLength(1);
+    expect(filterUpcoming(items, "pia", "", "all")).toHaveLength(1);
+    expect(filterUpcoming(items, "savings", "", "all")).toHaveLength(1);
+    expect(filterUpcoming(items, "nonexistent", "", "all")).toHaveLength(0);
+  });
+
+  test("targetDateLabel formats relative and absolute dates accurately", () => {
+    const today = "2026-07-15";
+    expect(targetDateLabel(null, today)).toBe("Flexible / Someday");
+    expect(targetDateLabel("", today)).toBe("Flexible / Someday");
+    expect(targetDateLabel("2026-07-15", today)).toBe("Due today");
+    expect(targetDateLabel("2026-07-16", today)).toBe("Due tomorrow");
+    expect(targetDateLabel("2026-07-14", today)).toBe("1 day ago");
+    expect(targetDateLabel("2026-07-10", today)).toBe("5d ago");
+    expect(targetDateLabel("2026-07-18", today)).toBe("In 3 days");
+    expect(targetDateLabel("2026-07-20", today)).toBe("In 5 days");
   });
 });
 
