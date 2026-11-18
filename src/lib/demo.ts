@@ -128,9 +128,9 @@ export function demoTasks() {
   });
   return [
     t("Pay electricity bill", { due: d(-1), priority: "high", list: "home" }),
-    t("Review portfolio & rebalance SOL", { due: d(0), priority: "high", list: "finance", notes: "Trim if SOL > 25% of holdings." }),
-    t("Log meter reading", { due: d(0), list: "home" }),
-    t("Padel with Ali — 7pm", { due: d(0), priority: "low", list: "health" }),
+    t("Review portfolio & rebalance SOL", { due: d(0), priority: "high", list: "finance", recurrence: { freq: "weekly" }, notes: "Trim if SOL > 25% of holdings." }),
+    t("Log meter reading", { due: d(0), list: "home", recurrence: { freq: "daily" } }),
+    t("Padel with Ali — 7pm", { due: d(0), priority: "low", list: "health", recurrence: { freq: "custom", interval: 3, unit: "days" } }),
     t("Prepare Q4 planning doc", { due: d(1), priority: "high", list: "work", goalId: "gq4", subtasks: [{ id: "s1", title: "Collect metrics", done: true }, { id: "s2", title: "Draft roadmap", done: false }, { id: "s3", title: "Share with team", done: false }] }),
     t("Car service — Passo", { due: d(3), list: "home" }),
     t("Renew Netflix / audit subscriptions", { due: d(5), priority: "low", list: "finance" }),

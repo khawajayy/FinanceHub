@@ -124,7 +124,7 @@ service cloud.firestore {
 
     // ---------- Tasks ----------
     function validTask(d) {
-      return d.keys().hasOnly(['title', 'notes', 'done', 'priority', 'due', 'list', 'subtasks', 'createdAt', 'completedAt', 'goalId'])
+      return d.keys().hasOnly(['title', 'notes', 'done', 'priority', 'due', 'list', 'subtasks', 'createdAt', 'completedAt', 'goalId', 'recurrence'])
         && d.title is string && d.title.size() > 0 && d.title.size() <= 200
         && d.notes is string && d.notes.size() <= 2000
         && d.done is bool
@@ -134,7 +134,14 @@ service cloud.firestore {
         && d.subtasks is list && d.subtasks.size() <= 50
         && d.createdAt is number
         && (d.completedAt == null || d.completedAt is number)
-        && (!('goalId' in d) || d.goalId == null || (d.goalId is string && d.goalId.size() <= 64));
+        && (!('goalId' in d) || d.goalId == null || (d.goalId is string && d.goalId.size() <= 64))
+        && (!('recurrence' in d) || d.recurrence == null || (d.recurrence is map
+          && d.recurrence.keys().hasOnly(['freq', 'interval', 'unit', 'daysOfWeek'])
+          && d.recurrence.freq in ['daily', 'weekly', 'custom']
+          && (!('interval' in d.recurrence) || (d.recurrence.interval is number && d.recurrence.interval >= 1 && d.recurrence.interval <= 365))
+          && (!('unit' in d.recurrence) || d.recurrence.unit in ['days', 'weeks', 'months'])
+          && (!('daysOfWeek' in d.recurrence) || (d.recurrence.daysOfWeek is list && d.recurrence.daysOfWeek.size() <= 7))
+        ));
     }
 
     match /tasks/{uid}/items/{id} {
