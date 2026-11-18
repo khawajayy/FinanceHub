@@ -1,8 +1,8 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertTriangle, CheckCheck, Flame, ListTodo, Search, Sparkles, Trash2 } from "lucide-react";
+import { AlertTriangle, CheckCheck, Flame, ListTodo, Repeat, Search, Sparkles, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { AnimatedNumber, Card, Empty, Ring, Segmented, Skeleton } from "@/components/ui";
-import { BUCKET_LABEL, bucketOf, grouped, iso, taskStats, type Bucket } from "@/engine/task-engine";
+import { BUCKET_LABEL, bucketOf, grouped, iso, recurrenceLabel, taskStats, type Bucket } from "@/engine/task-engine";
 import { cx } from "@/lib/format";
 import { useTasks } from "@/stores/tasks";
 import { confirmDialog, toast } from "@/stores/ui";
@@ -20,6 +20,7 @@ export default function Tasks() {
   const restore = useTasks((s) => s.restore);
   const [view, setView] = useState<View>("focus");
   const [list, setList] = useState<string | null>(null);
+  const [recurringOnly, setRecurringOnly] = useState(false);
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<string | null>(null);
   const today = iso(new Date());
@@ -27,14 +28,15 @@ export default function Tasks() {
 
   const groups = useMemo(() => {
     let l = tasks;
+    if (recurringOnly) l = l.filter((t) => !!t.recurrence);
     if (list) l = l.filter((t) => t.list === list);
     const s = q.trim().toLowerCase();
-    if (s) l = l.filter((t) => t.title.toLowerCase().includes(s) || t.notes.toLowerCase().includes(s) || (t.list || "").includes(s));
+    if (s) l = l.filter((t) => t.title.toLowerCase().includes(s) || t.notes.toLowerCase().includes(s) || (t.list || "").includes(s) || (t.recurrence && recurrenceLabel(t.recurrence).toLowerCase().includes(s)));
     if (view === "focus") l = l.filter((t) => FOCUS.includes(bucketOf(t, today)) || (t.done && t.completedAt && iso(new Date(t.completedAt)) === today));
     if (view === "upcoming") l = l.filter((t) => !t.done);
     if (view === "done") l = l.filter((t) => t.done);
     return grouped(l, today);
-  }, [tasks, list, q, view, today]);
+  }, [tasks, list, recurringOnly, q, view, today]);
   const max7 = Math.max(1, ...st.last7.map((d) => d.count));
   const doneCount = tasks.filter((t) => t.done).length;
 
@@ -54,10 +56,15 @@ export default function Tasks() {
                 <input className="input !py-2 !pl-9" placeholder="Search tasks…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search tasks" />
               </div>
             </div>
-            {st.lists.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                <button onClick={() => setList(null)} className={cx("chip !normal-case !text-[11px] transition", !list && "!bg-line/15 !text-ink")}>All lists</button>
-                {st.lists.map((l) => <ListTag key={l} name={l} active={list === l} onClick={() => setList(list === l ? null : l)} />)}
+            {(st.lists.length > 0 || st.recurring > 0) && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button onClick={() => { setList(null); setRecurringOnly(false); }} className={cx("chip !normal-case !text-[11px] transition", !list && !recurringOnly && "!bg-line/15 !text-ink")}>All lists</button>
+                {st.lists.map((l) => <ListTag key={l} name={l} active={list === l && !recurringOnly} onClick={() => { setList(list === l ? null : l); setRecurringOnly(false); }} />)}
+                {st.recurring > 0 && (
+                  <button onClick={() => { setRecurringOnly((r) => !r); setList(null); }} className={cx("chip !normal-case !text-[11px] inline-flex items-center gap-1 transition", recurringOnly ? "!bg-violet/20 !text-violet shadow-sm" : "!text-muted hover:!text-ink")}>
+                    <Repeat size={11} /> Recurring ({st.recurring})
+                  </button>
+                )}
               </div>
             )}
 
@@ -90,7 +97,7 @@ export default function Tasks() {
               )}
             </Card>
             <p className="px-1 text-[11.5px] text-muted">
-              Quick add understands <b>today</b>, <b>tomorrow</b>, weekdays (<b>fri</b>), <b>next week</b>, <b>in 3 days</b>, <b>25 oct</b>, priorities <b>!high</b> / <b>!low</b> and lists like <b>#finance</b>. Click a task to edit notes, dates and subtasks.
+              Quick add understands <b>today</b>, <b>tomorrow</b>, weekdays (<b>fri</b>), <b>next week</b>, <b>in 3 days</b>, <b>25 oct</b>, priorities <b>!high</b> / <b>!low</b>, lists like <b>#finance</b> and recurrences like <b>daily</b>, <b>weekly</b> or <b>every 2 days</b>. Click a task to edit notes, dates, subtasks and recurrence.
             </p>
           </div>
 

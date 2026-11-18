@@ -1,8 +1,8 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { CalendarDays, Check, CornerDownLeft, Flag, Hash, ListChecks, Plus, Sparkles, Trash2, X } from "lucide-react";
-import { useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { CalendarDays, Check, CornerDownLeft, Flag, Hash, ListChecks, Plus, Repeat, RotateCw, Sparkles, Trash2, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Segmented } from "@/components/ui";
-import { dueLabel, iso, parseQuickAdd, type Priority, type Task } from "@/engine/task-engine";
+import { dueLabel, iso, parseQuickAdd, recurrenceLabel, type Priority, type Task, type TaskRecurrence } from "@/engine/task-engine";
 import { cx } from "@/lib/format";
 import { useTasks } from "@/stores/tasks";
 import { useGoals } from "@/stores/goals";
@@ -60,27 +60,280 @@ export function CheckOrb({ done, onToggle, size = 22, label }: { done: boolean; 
   );
 }
 
-/** Quick add with live natural-language parsing preview. */
-export function QuickAdd({ autoFocus, compact, defaults, id, placeholder }: { autoFocus?: boolean; compact?: boolean; defaults?: { due?: string | null; list?: string | null; goalId?: string | null }; id?: string; placeholder?: string }) {
+const DAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
+const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+export function RecurrencePicker({
+  value,
+  onChange,
+  compact,
+}: {
+  value: TaskRecurrence | null;
+  onChange: (r: TaskRecurrence | null) => void;
+  compact?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<"preset" | "custom">("preset");
+  const [customInterval, setCustomInterval] = useState<number>(value?.interval ?? 2);
+  const [customUnit, setCustomUnit] = useState<"days" | "weeks" | "months">(value?.unit ?? "days");
+  const [customDays, setCustomDays] = useState<number[]>(value?.daysOfWeek ?? []);
+  const popoverRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClick = (e: MouseEvent) => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setMode("preset");
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  const selectPreset = (type: "none" | "daily" | "weekly" | "custom") => {
+    if (type === "none") {
+      onChange(null);
+      setOpen(false);
+      setMode("preset");
+    } else if (type === "daily") {
+      onChange({ freq: "daily" });
+      setOpen(false);
+      setMode("preset");
+    } else if (type === "weekly") {
+      onChange({ freq: "weekly" });
+      setOpen(false);
+      setMode("preset");
+    } else if (type === "custom") {
+      setMode("custom");
+    }
+  };
+
+  const applyCustom = () => {
+    const interval = Math.max(1, Math.min(365, Number(customInterval) || 1));
+    const rec: TaskRecurrence = {
+      freq: "custom",
+      interval,
+      unit: customUnit,
+    };
+    if (customUnit === "weeks" && customDays.length > 0) {
+      rec.daysOfWeek = [...customDays].sort();
+    }
+    onChange(rec);
+    setOpen(false);
+    setMode("preset");
+  };
+
+  const toggleDay = (day: number) => {
+    setCustomDays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day].sort()));
+  };
+
+  return (
+    <div className="relative inline-block" ref={popoverRef}>
+      {value ? (
+        <span
+          className={cx(
+            "chip !normal-case !bg-violet/15 !text-violet inline-flex items-center gap-1 font-semibold cursor-pointer transition hover:brightness-110",
+            compact ? "!py-1 !text-[11px]" : "!py-1.5 !text-xs"
+          )}
+          onClick={(e) => {
+            e.stopPropagation();
+            setOpen((o) => !o);
+          }}
+          title={`Recurring: ${recurrenceLabel(value)}. Click to change.`}
+        >
+          <Repeat size={compact ? 11 : 13} />
+          <span>{recurrenceLabel(value)}</span>
+          <button
+            type="button"
+            className="ml-0.5 opacity-70 hover:opacity-100 hover:text-ink"
+            onClick={(e) => {
+              e.stopPropagation();
+              onChange(null);
+            }}
+            aria-label="Remove recurrence"
+          >
+            <X size={11} />
+          </button>
+        </span>
+      ) : (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setOpen((o) => !o);
+          }}
+          className={cx(
+            "chip !normal-case hover:!text-ink inline-flex items-center gap-1 text-muted transition",
+            compact ? "!py-1 !text-[11px]" : "!py-1.5 !text-xs"
+          )}
+          aria-label="Set recurrence"
+        >
+          <Repeat size={compact ? 11 : 13} />
+          <span>Repeat</span>
+        </button>
+      )}
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: 6, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 4, scale: 0.95 }}
+            transition={{ duration: 0.15 }}
+            onClick={(e) => e.stopPropagation()}
+            className="absolute left-0 top-full z-30 mt-1 min-w-[220px] rounded-2xl border border-line/15 bg-bg/95 p-2 shadow-2xl backdrop-blur-xl ring-1 ring-line/10"
+          >
+            {mode === "preset" ? (
+              <div className="space-y-1 text-xs">
+                <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-muted">Recurrence</div>
+                <button
+                  type="button"
+                  onClick={() => selectPreset("none")}
+                  className={cx(
+                    "flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left transition hover:bg-line/10",
+                    !value && "font-semibold text-violet"
+                  )}
+                >
+                  <span>Does not repeat</span>
+                  {!value && <Check size={12} />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => selectPreset("daily")}
+                  className={cx(
+                    "flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left transition hover:bg-line/10",
+                    value?.freq === "daily" && "font-semibold text-violet"
+                  )}
+                >
+                  <span className="flex items-center gap-1.5"><Repeat size={12} className="text-violet" /> Daily</span>
+                  {value?.freq === "daily" && <Check size={12} />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => selectPreset("weekly")}
+                  className={cx(
+                    "flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left transition hover:bg-line/10",
+                    value?.freq === "weekly" && (!value.daysOfWeek || value.daysOfWeek.length === 0) && "font-semibold text-violet"
+                  )}
+                >
+                  <span className="flex items-center gap-1.5"><Repeat size={12} className="text-violet" /> Weekly</span>
+                  {value?.freq === "weekly" && (!value.daysOfWeek || value.daysOfWeek.length === 0) && <Check size={12} />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => selectPreset("custom")}
+                  className={cx(
+                    "flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left transition hover:bg-line/10",
+                    (value?.freq === "custom" || (value?.freq === "weekly" && !!value.daysOfWeek?.length)) && "font-semibold text-violet"
+                  )}
+                >
+                  <span className="flex items-center gap-1.5"><RotateCw size={12} className="text-violet" /> Custom…</span>
+                  <span className="text-[10px] text-muted">Interval & days</span>
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3 p-1 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-muted">Custom recurrence</span>
+                  <button type="button" onClick={() => setMode("preset")} className="text-[11px] text-muted hover:text-ink">Back</button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-muted">Every</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="365"
+                    value={customInterval}
+                    onChange={(e) => setCustomInterval(Math.max(1, parseInt(e.target.value) || 1))}
+                    className="input !w-16 !py-1 text-center font-medium"
+                    aria-label="Custom interval"
+                  />
+                  <select
+                    value={customUnit}
+                    onChange={(e) => setCustomUnit(e.target.value as "days" | "weeks" | "months")}
+                    className="input !w-24 !py-1 text-xs"
+                    aria-label="Custom unit"
+                  >
+                    <option value="days">days</option>
+                    <option value="weeks">weeks</option>
+                    <option value="months">months</option>
+                  </select>
+                </div>
+
+                {customUnit === "weeks" && (
+                  <div className="space-y-1.5">
+                    <span className="text-[10px] text-muted">On days:</span>
+                    <div className="flex items-center justify-between gap-1">
+                      {DAY_LABELS.map((label, idx) => {
+                        const sel = customDays.includes(idx);
+                        return (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => toggleDay(idx)}
+                            title={DAY_NAMES[idx]}
+                            className={cx(
+                              "h-6 w-6 rounded-full text-[10px] font-semibold transition",
+                              sel ? "bg-violet text-white shadow-glowv" : "bg-line/10 text-muted hover:text-ink"
+                            )}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-end gap-1.5 pt-1">
+                  <button type="button" onClick={() => setMode("preset")} className="btn btn-ghost btn-sm !py-1 !text-xs">Cancel</button>
+                  <button type="button" onClick={applyCustom} className="btn btn-primary btn-sm !py-1 !text-xs">Apply</button>
+                </div>
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+/** Quick add with live natural-language parsing preview and recurrence support. */
+export function QuickAdd({ autoFocus, compact, defaults, id, placeholder }: { autoFocus?: boolean; compact?: boolean; defaults?: { due?: string | null; list?: string | null; goalId?: string | null; recurrence?: TaskRecurrence | null }; id?: string; placeholder?: string }) {
   const add = useTasks((s) => s.add);
   const [text, setText] = useState("");
   const [focus, setFocus] = useState(false);
+  const [manualRecurrence, setManualRecurrence] = useState<TaskRecurrence | null>(null);
   const p = useMemo(() => parseQuickAdd(text), [text]);
   const today = iso(new Date());
+
+  const effectiveRecurrence = manualRecurrence ?? p.recurrence ?? defaults?.recurrence ?? null;
+
   const submit = () => {
     if (!p.title.trim()) { if (text.trim()) toast("Give the task a name too", true); return; }
-    add({ title: p.title, due: p.due ?? defaults?.due ?? null, priority: p.priority, list: p.list ?? defaults?.list ?? null, goalId: defaults?.goalId ?? null });
+    const due = p.due ?? (effectiveRecurrence?.freq === "daily" ? today : null) ?? defaults?.due ?? null;
+    add({
+      title: p.title,
+      due,
+      priority: p.priority,
+      list: p.list ?? defaults?.list ?? null,
+      goalId: defaults?.goalId ?? null,
+      recurrence: effectiveRecurrence,
+    });
     setText("");
+    setManualRecurrence(null);
   };
-  const hasTokens = p.due || p.list || p.priority !== "med";
+  const hasTokens = p.due || p.list || p.priority !== "med" || effectiveRecurrence;
   return (
     <div className={cx("relative rounded-2xl transition", focus ? "ring-1 ring-cyan/50 shadow-glow" : "ring-1 ring-line/10")}>
       <div className="flex items-center gap-2 rounded-2xl bg-line/[.04] px-3">
         <Sparkles size={16} className={cx("shrink-0 transition", focus ? "text-cyan" : "text-muted")} />
         <input id={id} autoFocus={autoFocus} value={text} onChange={(e) => setText(e.target.value)} onFocus={() => setFocus(true)} onBlur={() => setFocus(false)}
-          onKeyDown={(e: KeyboardEvent) => { if (e.key === "Enter") { e.preventDefault(); submit(); } if (e.key === "Escape") setText(""); }}
-          placeholder={placeholder ?? (compact ? "Add a task…" : "Add a task — try “Pay rent tomorrow !high #finance”")} aria-label="New task"
+          onKeyDown={(e: KeyboardEvent) => { if (e.key === "Enter") { e.preventDefault(); submit(); } if (e.key === "Escape") { setText(""); setManualRecurrence(null); } }}
+          placeholder={placeholder ?? (compact ? "Add a task…" : "Add a task — try “Pay rent tomorrow !high #finance” or “Gym daily”")} aria-label="New task"
           className={cx("min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted/70", compact ? "py-2.5 text-sm" : "py-3.5 text-[15px]")} />
+        <RecurrencePicker value={effectiveRecurrence} onChange={setManualRecurrence} compact />
         <button type="button" onClick={submit} disabled={!p.title.trim()} className="btn btn-primary btn-sm !px-2.5" aria-label="Add task">
           {compact ? <Plus size={14} /> : <><CornerDownLeft size={13} /> Add</>}
         </button>
@@ -91,8 +344,19 @@ export function QuickAdd({ autoFocus, compact, defaults, id, placeholder }: { au
             <div className="flex flex-wrap items-center gap-1.5 px-3 pb-2.5 pt-1 text-[11px]">
               <span className="text-muted">will add</span>
               {p.due && <span className="chip !normal-case !bg-amber/12 !text-amber"><CalendarDays size={10} />{dueLabel(p.due, today)}</span>}
+              {!p.due && effectiveRecurrence?.freq === "daily" && <span className="chip !normal-case !bg-amber/12 !text-amber"><CalendarDays size={10} />Starts today</span>}
               {p.priority !== "med" && <span className={cx("chip !normal-case", PRI_STYLE[p.priority].text)}><Flag size={10} />{PRI_STYLE[p.priority].label}</span>}
               {p.list && <ListTag name={p.list} />}
+              {effectiveRecurrence && (
+                <span className="chip !normal-case !bg-violet/15 !text-violet inline-flex items-center gap-1 font-semibold">
+                  <Repeat size={10} />{recurrenceLabel(effectiveRecurrence)}
+                  {manualRecurrence && (
+                    <button type="button" onClick={() => setManualRecurrence(null)} className="ml-0.5 hover:text-ink">
+                      <X size={10} />
+                    </button>
+                  )}
+                </span>
+              )}
             </div>
           </motion.div>
         )}
@@ -136,6 +400,7 @@ function Editor({ t }: { t: Task }) {
           <label className="flex items-center gap-1 text-xs text-muted"><Hash size={13} />
             <input className="input !w-28 !py-1.5 !text-xs" placeholder="list" value={list} onChange={(e) => setList(e.target.value)} onBlur={saveText} aria-label="List" />
           </label>
+          <RecurrencePicker value={t.recurrence ?? null} onChange={(recurrence) => update(t.id, { recurrence })} />
           <GoalPicker value={t.goalId ?? null} onChange={(goalId) => update(t.id, { goalId })} />
         </div>
         <div className="space-y-1.5">
@@ -190,15 +455,26 @@ export function TaskRow({ t, expanded, onExpand, compact }: { t: Task; expanded?
       className={cx("group relative border-b border-line/5 last:border-none", expanded && "bg-line/[.03]")}>
       {t.priority === "high" && !t.done && <span className="absolute inset-y-2 left-0 w-[3px] rounded-full bg-pink shadow-[0_0_10px_rgb(var(--pink))]" />}
       <div className={cx("flex cursor-pointer items-center gap-3", compact ? "px-4 py-2.5" : "px-4 py-3")} onClick={onExpand}>
-        <CheckOrb done={t.done} label={`Complete ${t.title}`} onToggle={() => { toggle(t.id); if (!t.done) toast(`Done: ${t.title}`, false, { label: "Undo", onClick: () => toggle(t.id) }); }} />
+        <CheckOrb done={t.done} label={`Complete ${t.title}`} onToggle={() => {
+          const res = toggle(t.id);
+          if (!t.done) {
+            const nextMsg = res && res.nextDue ? ` (next due ${dueLabel(res.nextDue, today)})` : "";
+            toast(`Done: ${t.title}${nextMsg}`, false, { label: "Undo", onClick: () => toggle(t.id) });
+          }
+        }} />
         <div className="min-w-0 flex-1">
           <div className="relative w-fit max-w-full">
             <span className={cx("block truncate text-sm font-medium transition-colors", t.done && "text-muted")}>{t.title}</span>
             <motion.span className="absolute left-0 top-1/2 h-px bg-muted" initial={false} animate={{ width: t.done ? "100%" : "0%" }} transition={{ duration: 0.3 }} />
           </div>
-          {(t.due || t.list || t.subtasks.length > 0 || (t.notes && !compact)) && (
+          {(t.due || t.list || t.subtasks.length > 0 || (t.notes && !compact) || t.recurrence) && (
             <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
               {t.due && !t.done && <span className={cx("inline-flex items-center gap-1 font-semibold", overdue ? "neg" : t.due === today ? "text-amber" : "text-muted")}><CalendarDays size={11} />{dueLabel(t.due, today)}</span>}
+              {t.recurrence && (
+                <span className={cx("chip !normal-case inline-flex items-center gap-1 font-semibold transition", t.done ? "!bg-line/10 !text-muted" : "!bg-violet/15 !text-violet")} title={`Recurs: ${recurrenceLabel(t.recurrence)}`}>
+                  <Repeat size={10} />{recurrenceLabel(t.recurrence)}
+                </span>
+              )}
               {t.list && <ListTag name={t.list} />}
               {t.goalId && <GoalChip id={t.goalId} />}
               {t.subtasks.length > 0 && <span className="inline-flex items-center gap-1 text-muted"><ListChecks size={11} />{subDone}/{t.subtasks.length}</span>}
