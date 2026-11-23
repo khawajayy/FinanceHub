@@ -11,6 +11,7 @@ import {
   parseQuickAdd,
   recurrenceLabel,
   sortTasks,
+  subtaskStats,
   taskStats,
   type Task,
 } from "../src/engine/task-engine";
@@ -85,6 +86,16 @@ describe("quick add parsing", () => {
     expect(parseQuickAdd("Explicit tag repeat:daily", TODAY)).toMatchObject({
       title: "Explicit tag",
       recurrence: { freq: "daily" },
+    });
+    expect(parseQuickAdd("Party prep [buy cake, send invites, get drinks] tomorrow !high", TODAY)).toMatchObject({
+      title: "Party prep",
+      due: "2026-10-18",
+      priority: "high",
+      subtasks: ["buy cake", "send invites", "get drinks"],
+    });
+    expect(parseQuickAdd("Groceries [milk; eggs; bread]", TODAY)).toMatchObject({
+      title: "Groceries",
+      subtasks: ["milk", "eggs", "bread"],
     });
   });
 });
@@ -286,5 +297,24 @@ describe("task reordering & drag-to-adjust attributes", () => {
     expect(calculateBucketDrop(t1, "done", T)).toMatchObject({
       done: true,
     });
+  });
+});
+
+describe("subtask helpers and progress calculations", () => {
+  test("subtaskStats calculates completion and progress percentages", () => {
+    expect(subtaskStats([])).toEqual({ total: 0, done: 0, remaining: 0, percent: 0, allDone: false });
+    const subs = [
+      { id: "1", title: "a", done: true },
+      { id: "2", title: "b", done: false },
+      { id: "3", title: "c", done: false },
+      { id: "4", title: "d", done: true },
+    ];
+    expect(subtaskStats(subs)).toEqual({ total: 4, done: 2, remaining: 2, percent: 50, allDone: false });
+
+    const allCompleted = [
+      { id: "1", title: "a", done: true },
+      { id: "2", title: "b", done: true },
+    ];
+    expect(subtaskStats(allCompleted)).toEqual({ total: 2, done: 2, remaining: 0, percent: 100, allDone: true });
   });
 });

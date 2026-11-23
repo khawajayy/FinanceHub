@@ -270,7 +270,7 @@ export default function Tasks() {
               </div>
             </Card>
             <p className="px-1 text-[11.5px] text-muted">
-              <b>Hold &amp; drag</b> tasks to reorder them — due dates and priorities adjust automatically (e.g. drag to the top for <b>!high</b> priority). Quick add understands <b>today</b>, <b>tomorrow</b>, weekdays (<b>fri</b>), <b>next week</b>, <b>in 3 days</b>, <b>25 oct</b>, priorities <b>!high</b> / <b>!low</b>, lists like <b>#finance</b> and recurrences like <b>daily</b>, <b>weekly</b> or <b>every 2 days</b>. Click a task to edit notes, dates, subtasks and recurrence.
+              <b>Hold &amp; drag</b> tasks to reorder them — due dates and priorities adjust automatically (e.g. drag to the top for <b>!high</b> priority). Quick add understands <b>today</b>, <b>tomorrow</b>, weekdays (<b>fri</b>), <b>next week</b>, <b>in 3 days</b>, <b>25 oct</b>, priorities <b>!high</b> / <b>!low</b>, lists like <b>#finance</b>, recurrences like <b>daily</b> or <b>weekly</b>, and subtasks like <b>[item 1, item 2]</b>. Click a task to edit notes, dates, subtasks and recurrence.
             </p>
           </div>
 

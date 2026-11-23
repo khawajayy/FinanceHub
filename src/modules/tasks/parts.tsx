@@ -1,8 +1,8 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { CalendarDays, Check, CornerDownLeft, Flag, GripVertical, Hash, ListChecks, Plus, Repeat, RotateCw, Sparkles, Trash2, X } from "lucide-react";
+import { CalendarDays, Check, ChevronDown, ChevronUp, CornerDownLeft, CornerUpRight, Flag, GripVertical, Hash, ListChecks, Plus, Repeat, RotateCw, Sparkles, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Segmented } from "@/components/ui";
-import { dueLabel, iso, parseQuickAdd, recurrenceLabel, type Priority, type Task, type TaskRecurrence } from "@/engine/task-engine";
+import { dueLabel, iso, parseQuickAdd, recurrenceLabel, subtaskStats, type Priority, type Subtask, type Task, type TaskRecurrence } from "@/engine/task-engine";
 import { cx } from "@/lib/format";
 import { useTasks } from "@/stores/tasks";
 import { useGoals } from "@/stores/goals";
@@ -313,18 +313,24 @@ export function QuickAdd({ autoFocus, compact, defaults, id, placeholder }: { au
   const submit = () => {
     if (!p.title.trim()) { if (text.trim()) toast("Give the task a name too", true); return; }
     const due = p.due ?? (effectiveRecurrence?.freq === "daily" ? today : null) ?? defaults?.due ?? null;
+    const subtasks: Subtask[] = (p.subtasks || []).map((title) => ({
+      id: Math.random().toString(36).slice(2, 10),
+      title,
+      done: false,
+    }));
     add({
       title: p.title,
       due,
       priority: p.priority,
       list: p.list ?? defaults?.list ?? null,
+      subtasks,
       goalId: defaults?.goalId ?? null,
       recurrence: effectiveRecurrence,
     });
     setText("");
     setManualRecurrence(null);
   };
-  const hasTokens = p.due || p.list || p.priority !== "med" || effectiveRecurrence;
+  const hasTokens = p.due || p.list || p.priority !== "med" || effectiveRecurrence || (p.subtasks && p.subtasks.length > 0);
   return (
     <div className={cx("relative rounded-2xl transition", focus ? "ring-1 ring-cyan/50 shadow-glow" : "ring-1 ring-line/10")}>
       <div className="flex items-center gap-2 rounded-2xl bg-line/[.04] px-3">
@@ -357,6 +363,11 @@ export function QuickAdd({ autoFocus, compact, defaults, id, placeholder }: { au
                   )}
                 </span>
               )}
+              {p.subtasks && p.subtasks.length > 0 && (
+                <span className="chip !normal-case !bg-cyan/15 !text-cyan inline-flex items-center gap-1 font-semibold">
+                  <ListChecks size={10} /> {p.subtasks.length} subtask{p.subtasks.length === 1 ? "" : "s"}
+                </span>
+              )}
             </div>
           </motion.div>
         )}
@@ -367,11 +378,27 @@ export function QuickAdd({ autoFocus, compact, defaults, id, placeholder }: { au
 
 function Editor({ t }: { t: Task }) {
   const update = useTasks((s) => s.update);
+  const toggle = useTasks((s) => s.toggle);
+  const addSubtask = useTasks((s) => s.addSubtask);
+  const addMultipleSubtasks = useTasks((s) => s.addMultipleSubtasks);
+  const updateSubtask = useTasks((s) => s.updateSubtask);
+  const toggleSubtask = useTasks((s) => s.toggleSubtask);
+  const removeSubtask = useTasks((s) => s.removeSubtask);
+  const reorderSubtasks = useTasks((s) => s.reorderSubtasks);
+  const completeAllSubtasks = useTasks((s) => s.completeAllSubtasks);
+  const clearCompletedSubtasks = useTasks((s) => s.clearCompletedSubtasks);
+  const convertSubtaskToTask = useTasks((s) => s.convertSubtaskToTask);
+  const removeTask = useTasks((s) => s.remove);
+
   const [title, setTitle] = useState(t.title);
   const [notes, setNotes] = useState(t.notes);
   const [list, setList] = useState(t.list || "");
   const [sub, setSub] = useState("");
+  const [editingSubId, setEditingSubId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState("");
   const subRef = useRef<HTMLInputElement>(null);
+  const subStats = subtaskStats(t.subtasks);
+
   const saveText = () => {
     const patch: Partial<Task> = {};
     if (title.trim() && title.trim() !== t.title) patch.title = title.trim(); else if (!title.trim()) setTitle(t.title);
@@ -380,11 +407,46 @@ function Editor({ t }: { t: Task }) {
     if (l !== t.list) patch.list = l;
     if (Object.keys(patch).length) update(t.id, patch);
   };
+
   const addSub = () => {
     if (!sub.trim()) return;
-    update(t.id, { subtasks: [...t.subtasks, { id: Math.random().toString(36).slice(2, 10), title: sub.trim().slice(0, 120), done: false }] });
-    setSub(""); subRef.current?.focus();
+    addSubtask(t.id, sub.trim());
+    setSub("");
+    subRef.current?.focus();
   };
+
+  const startEditSub = (subId: string, currentTitle: string) => {
+    setEditingSubId(subId);
+    setEditTitle(currentTitle);
+  };
+
+  const saveEditSub = () => {
+    if (editingSubId && editTitle.trim()) {
+      updateSubtask(t.id, editingSubId, editTitle.trim());
+    }
+    setEditingSubId(null);
+    setEditTitle("");
+  };
+
+  const handleSubKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      addSub();
+    }
+  };
+
+  const handleSubPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const text = e.clipboardData.getData("text");
+    if (text.includes("\n")) {
+      e.preventDefault();
+      const lines = text.split("\n").map((l) => l.replace(/^[-*•\d.)\]]\s*/, "").trim()).filter(Boolean);
+      if (lines.length > 0) {
+        addMultipleSubtasks(t.id, lines);
+        setSub("");
+      }
+    }
+  };
+
   return (
     <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden" onClick={(e) => e.stopPropagation()}>
       <div className="space-y-3 pb-4 pl-11 pr-4 pt-1">
@@ -403,18 +465,170 @@ function Editor({ t }: { t: Task }) {
           <RecurrencePicker value={t.recurrence ?? null} onChange={(recurrence) => update(t.id, { recurrence })} />
           <GoalPicker value={t.goalId ?? null} onChange={(goalId) => update(t.id, { goalId })} />
         </div>
-        <div className="space-y-1.5">
-          {t.subtasks.map((s) => (
-            <div key={s.id} className="group flex items-center gap-2.5 text-sm">
-              <CheckOrb size={17} done={s.done} label={`Subtask ${s.title}`} onToggle={() => update(t.id, { subtasks: t.subtasks.map((x) => (x.id === s.id ? { ...x, done: !x.done } : x)) })} />
-              <span className={cx("flex-1", s.done && "text-muted line-through")}>{s.title}</span>
-              <button className="icon-btn !h-6 !w-6 opacity-0 group-hover:opacity-100" aria-label="Remove subtask" onClick={() => update(t.id, { subtasks: t.subtasks.filter((x) => x.id !== s.id) })}><X size={12} /></button>
+
+        {/* Full-featured Subtasks Section */}
+        <div className="space-y-2 pt-2 border-t border-line/10">
+          <div className="flex items-center justify-between text-xs">
+            <div className="flex items-center gap-1.5 font-semibold text-muted">
+              <ListChecks size={14} className={cx(subStats.allDone ? "text-pos" : "text-cyan")} />
+              <span>Subtasks</span>
+              {subStats.total > 0 && (
+                <span className="num font-normal text-[11px] text-muted">
+                  ({subStats.done}/{subStats.total})
+                </span>
+              )}
             </div>
-          ))}
-          <div className="flex items-center gap-2">
-            <ListChecks size={15} className="text-muted" />
-            <input ref={subRef} className="flex-1 bg-transparent py-1 text-sm outline-none placeholder:text-muted/60" placeholder="Add a subtask…" value={sub} onChange={(e) => setSub(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && addSub()} aria-label="New subtask" />
+            {subStats.total > 0 && (
+              <div className="flex items-center gap-2 text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => completeAllSubtasks(t.id, !subStats.allDone)}
+                  className="text-muted hover:text-ink transition font-medium"
+                >
+                  {subStats.allDone ? "Uncheck all" : "Complete all"}
+                </button>
+                {subStats.done > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const count = clearCompletedSubtasks(t.id);
+                      toast(`Cleared ${count} completed subtask${count === 1 ? "" : "s"}`);
+                    }}
+                    className="text-muted hover:text-neg transition font-medium"
+                  >
+                    Clear completed
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {subStats.total > 0 && (
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-line/10">
+              <motion.div
+                className={cx(
+                  "h-full rounded-full transition-all duration-300",
+                  subStats.allDone ? "bg-pos" : "bg-gradient-to-r from-cyan to-violet"
+                )}
+                initial={{ width: 0 }}
+                animate={{ width: `${subStats.percent}%` }}
+              />
+            </div>
+          )}
+
+          <div className="space-y-1">
+            {t.subtasks.map((s, idx) => (
+              <div key={s.id} className="group/sub flex items-center gap-2 rounded-lg px-2 py-1 text-sm hover:bg-line/[.04] transition-colors">
+                <CheckOrb
+                  size={17}
+                  done={s.done}
+                  label={`Subtask ${s.title}`}
+                  onToggle={() => {
+                    const res = toggleSubtask(t.id, s.id);
+                    if (res && res.allDone && !t.done) {
+                      toast(`All subtasks for "${t.title}" complete! 🎉`, false, {
+                        label: "Complete task",
+                        onClick: () => toggle(t.id),
+                      });
+                    }
+                  }}
+                />
+
+                {editingSubId === s.id ? (
+                  <input
+                    autoFocus
+                    className="input !py-0.5 !px-1.5 flex-1 text-sm font-medium"
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    onBlur={saveEditSub}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") saveEditSub();
+                      if (e.key === "Escape") setEditingSubId(null);
+                    }}
+                    aria-label="Edit subtask title"
+                  />
+                ) : (
+                  <span
+                    onClick={() => startEditSub(s.id, s.title)}
+                    className={cx("flex-1 cursor-text transition-colors select-none", s.done && "text-muted line-through")}
+                    title="Click to rename"
+                  >
+                    {s.title}
+                  </span>
+                )}
+
+                <div className="flex items-center gap-0.5 opacity-0 group-hover/sub:opacity-100 transition-opacity">
+                  <button
+                    type="button"
+                    className="icon-btn !h-6 !w-6 disabled:opacity-20"
+                    disabled={idx === 0}
+                    onClick={() => reorderSubtasks(t.id, idx, idx - 1)}
+                    title="Move up"
+                    aria-label="Move subtask up"
+                  >
+                    <ChevronUp size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-btn !h-6 !w-6 disabled:opacity-20"
+                    disabled={idx === t.subtasks.length - 1}
+                    onClick={() => reorderSubtasks(t.id, idx, idx + 1)}
+                    title="Move down"
+                    aria-label="Move subtask down"
+                  >
+                    <ChevronDown size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-btn !h-6 !w-6 hover:!text-cyan"
+                    title="Convert to standalone task"
+                    aria-label="Convert to standalone task"
+                    onClick={() => {
+                      const newTaskId = convertSubtaskToTask(t.id, s.id);
+                      if (newTaskId) {
+                        toast(`Converted "${s.title}" to standalone task`, false, {
+                          label: "Undo",
+                          onClick: () => {
+                            removeTask(newTaskId);
+                            addSubtask(t.id, s.title);
+                          },
+                        });
+                      }
+                    }}
+                  >
+                    <CornerUpRight size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-btn !h-6 !w-6 hover:!text-neg"
+                    aria-label="Remove subtask"
+                    title="Delete subtask"
+                    onClick={() => removeSubtask(t.id, s.id)}
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              </div>
+            ))}
+
+            <div className="flex items-center gap-2 pt-1 px-2">
+              <Plus size={14} className="text-muted shrink-0" />
+              <input
+                ref={subRef}
+                className="flex-1 bg-transparent py-1 text-sm outline-none placeholder:text-muted/60"
+                placeholder="Add subtask (press Enter, or paste list)…"
+                value={sub}
+                onChange={(e) => setSub(e.target.value)}
+                onKeyDown={handleSubKeyDown}
+                onPaste={handleSubPaste}
+                aria-label="New subtask"
+              />
+              {sub.trim() && (
+                <button type="button" onClick={addSub} className="btn btn-primary btn-sm !py-0.5 !px-2 text-xs">
+                  Add
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -473,11 +687,14 @@ export function TaskRow({
   onTouchStartHandle?: (e: React.TouchEvent, taskId: string) => void;
 }) {
   const toggle = useTasks((s) => s.toggle);
+  const toggleSubtask = useTasks((s) => s.toggleSubtask);
   const remove = useTasks((s) => s.remove);
   const restore = useTasks((s) => s.restore);
+  const [showSubtasks, setShowSubtasks] = useState(false);
   const today = iso(new Date());
   const overdue = !t.done && t.due && t.due < today;
-  const subDone = t.subtasks.filter((s) => s.done).length;
+  const subStats = subtaskStats(t.subtasks);
+  const subDone = subStats.done;
   return (
     <motion.div
       layout="position"
@@ -549,7 +766,27 @@ export function TaskRow({
               )}
               {t.list && <ListTag name={t.list} />}
               {t.goalId && <GoalChip id={t.goalId} />}
-              {t.subtasks.length > 0 && <span className="inline-flex items-center gap-1 text-muted"><ListChecks size={11} />{subDone}/{t.subtasks.length}</span>}
+              {t.subtasks.length > 0 && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowSubtasks((prev) => !prev);
+                  }}
+                  className={cx(
+                    "chip !normal-case inline-flex items-center gap-1 font-semibold transition hover:brightness-110",
+                    subStats.allDone
+                      ? "!bg-pos/15 !text-pos"
+                      : "!bg-line/10 !text-muted hover:!text-ink"
+                  )}
+                  title={showSubtasks ? "Hide subtasks checklist" : "Click to view / check off subtasks"}
+                  aria-label={`${subDone} of ${t.subtasks.length} subtasks done. Click to toggle checklist.`}
+                >
+                  <ListChecks size={10} />
+                  <span>{subDone}/{t.subtasks.length}</span>
+                  <ChevronDown size={10} className={cx("transition-transform duration-200", showSubtasks && "rotate-180")} />
+                </button>
+              )}
               {t.notes && !compact && <span className="max-w-[240px] truncate text-muted">· {t.notes}</span>}
             </div>
           )}
@@ -561,6 +798,52 @@ export function TaskRow({
         )}
         {t.done && compact && <Check size={14} className="text-pos" />}
       </div>
+      <AnimatePresence>
+        {showSubtasks && !expanded && t.subtasks.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.18 }}
+            className="overflow-hidden border-t border-line/5 bg-line/[.02] px-4 py-2.5 pl-11 space-y-1.5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2 mb-1.5">
+              <div className="h-1 flex-1 overflow-hidden rounded-full bg-line/15">
+                <div
+                  className={cx(
+                    "h-full rounded-full transition-all duration-300",
+                    subStats.allDone ? "bg-pos" : "bg-gradient-to-r from-cyan to-violet"
+                  )}
+                  style={{ width: `${subStats.percent}%` }}
+                />
+              </div>
+              <span className="num text-[10px] text-muted">{subDone}/{t.subtasks.length} done</span>
+            </div>
+            {t.subtasks.map((s) => (
+              <div key={s.id} className="group/sub flex items-center gap-2 text-xs">
+                <CheckOrb
+                  size={16}
+                  done={s.done}
+                  label={`Subtask ${s.title}`}
+                  onToggle={() => {
+                    const res = toggleSubtask(t.id, s.id);
+                    if (res && res.allDone && !t.done) {
+                      toast(`All subtasks for "${t.title}" complete! 🎉`, false, {
+                        label: "Complete task",
+                        onClick: () => toggle(t.id),
+                      });
+                    }
+                  }}
+                />
+                <span className={cx("flex-1 transition-colors", s.done && "text-muted line-through")}>
+                  {s.title}
+                </span>
+              </div>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
       <AnimatePresence>{expanded && !compact && <Editor t={t} />}</AnimatePresence>
     </motion.div>
   );
