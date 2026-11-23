@@ -179,7 +179,35 @@ export function cleanRecurrence(r: unknown): TaskRecurrence | null {
   return res;
 }
 
-export interface Parsed { title: string; due: string | null; priority: Priority; list: string | null; recurrence: TaskRecurrence | null }
+export interface SubtaskStats {
+  total: number;
+  done: number;
+  remaining: number;
+  percent: number;
+  allDone: boolean;
+}
+
+export function subtaskStats(subtasks: Subtask[] = []): SubtaskStats {
+  const total = subtasks.length;
+  const done = subtasks.filter((s) => s.done).length;
+  const percent = total > 0 ? Math.round((done / total) * 100) : 0;
+  return {
+    total,
+    done,
+    remaining: total - done,
+    percent,
+    allDone: total > 0 && done === total,
+  };
+}
+
+export interface Parsed {
+  title: string;
+  due: string | null;
+  priority: Priority;
+  list: string | null;
+  recurrence: TaskRecurrence | null;
+  subtasks?: string[];
+}
 
 /**
  * Parses quick-add text. Recognised tokens (removed from the title):
@@ -189,12 +217,28 @@ export interface Parsed { title: string; due: string | null; priority: Priority;
  *   list:       #word
  *   recurrence: daily, weekly, monthly, every day, every week, every month,
  *               every weekday, every 2 days/weeks/months, repeat:daily, etc.
+ *   subtasks:   [subtask 1, subtask 2, subtask 3]
  */
 export function parseQuickAdd(input: string, today = new Date()): Parsed {
   let due: Date | null = null, priority: Priority = "med", list: string | null = null;
   let recurrence: TaskRecurrence | null = null;
+  let subtasks: string[] = [];
   const t0 = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const words = input.trim().split(/\s+/).filter(Boolean);
+
+  let raw = input.trim();
+  const bracketMatch = raw.match(/\[([^\]]+)\]/);
+  if (bracketMatch) {
+    const extracted = bracketMatch[1]
+      .split(/[,;\n]/)
+      .map((s) => s.trim().slice(0, 120))
+      .filter(Boolean);
+    if (extracted.length > 0) {
+      subtasks = extracted;
+      raw = raw.replace(bracketMatch[0], " ");
+    }
+  }
+
+  const words = raw.trim().split(/\s+/).filter(Boolean);
   const keep: string[] = [];
   for (let i = 0; i < words.length; i++) {
     const w = words[i], lw = w.toLowerCase().replace(/[.,]$/, "");
@@ -295,7 +339,14 @@ export function parseQuickAdd(input: string, today = new Date()): Parsed {
   }
   // trailing "on"/"by"/"due"/"repeat"/"recur" left dangling after removing tokens
   while (keep.length && /^(on|by|due|repeat|recur)$/i.test(keep[keep.length - 1])) keep.pop();
-  return { title: keep.join(" "), due: due ? iso(due) : null, priority, list, recurrence };
+  return {
+    title: keep.join(" "),
+    due: due ? iso(due) : null,
+    priority,
+    list,
+    recurrence,
+    subtasks: subtasks.length ? subtasks : undefined,
+  };
 }
 
 export type Bucket = "overdue" | "today" | "tomorrow" | "week" | "later" | "someday" | "done";

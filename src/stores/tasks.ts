@@ -22,6 +22,15 @@ interface TaskState {
   update: (id: string, patch: Partial<Omit<Task, "id">>) => void;
   reorder: (sourceId: string, targetId: string, position: "before" | "after") => Partial<Task> | null;
   dropToBucket: (sourceId: string, bucket: Bucket) => Partial<Task> | null;
+  addSubtask: (taskId: string, title: string) => string | undefined;
+  addMultipleSubtasks: (taskId: string, titles: string[]) => void;
+  updateSubtask: (taskId: string, subtaskId: string, title: string) => void;
+  toggleSubtask: (taskId: string, subtaskId: string) => { allDone: boolean } | void;
+  removeSubtask: (taskId: string, subtaskId: string) => Subtask | undefined;
+  reorderSubtasks: (taskId: string, fromIndex: number, toIndex: number) => void;
+  completeAllSubtasks: (taskId: string, done?: boolean) => void;
+  clearCompletedSubtasks: (taskId: string) => number;
+  convertSubtaskToTask: (taskId: string, subtaskId: string) => string | undefined;
   toggle: (id: string) => { nextDue?: string; nextId?: string } | void;
   remove: (id: string) => Task | undefined;
   restore: (t: Task) => void;
@@ -151,12 +160,115 @@ export const useTasks = create<TaskState>((set, get) => {
       return patch;
     },
 
+    addSubtask: (taskId, title) => {
+      const t = find(taskId);
+      if (!t || !title.trim()) return;
+      const newSub: Subtask = {
+        id: Math.random().toString(36).slice(2, 10),
+        title: title.trim().slice(0, 120),
+        done: false,
+      };
+      get().update(taskId, { subtasks: [...t.subtasks, newSub] });
+      return newSub.id;
+    },
+
+    addMultipleSubtasks: (taskId, titles) => {
+      const t = find(taskId);
+      if (!t) return;
+      const cleanTitles = titles.map((s) => s.trim().slice(0, 120)).filter(Boolean);
+      if (!cleanTitles.length) return;
+      const newSubs: Subtask[] = cleanTitles.map((title) => ({
+        id: Math.random().toString(36).slice(2, 10),
+        title,
+        done: false,
+      }));
+      get().update(taskId, { subtasks: [...t.subtasks, ...newSubs] });
+    },
+
+    updateSubtask: (taskId, subtaskId, title) => {
+      const t = find(taskId);
+      if (!t) return;
+      const trimmed = title.trim().slice(0, 120);
+      if (!trimmed) return;
+      const nextSubs = t.subtasks.map((s) => (s.id === subtaskId ? { ...s, title: trimmed } : s));
+      get().update(taskId, { subtasks: nextSubs });
+    },
+
+    toggleSubtask: (taskId, subtaskId) => {
+      const t = find(taskId);
+      if (!t) return;
+      let targetDone = false;
+      const nextSubs = t.subtasks.map((s) => {
+        if (s.id === subtaskId) {
+          targetDone = !s.done;
+          return { ...s, done: targetDone };
+        }
+        return s;
+      });
+      const allDone = nextSubs.length > 0 && nextSubs.every((s) => s.done);
+      get().update(taskId, { subtasks: nextSubs });
+      return { allDone };
+    },
+
+    removeSubtask: (taskId, subtaskId) => {
+      const t = find(taskId);
+      if (!t) return;
+      const target = t.subtasks.find((s) => s.id === subtaskId);
+      if (!target) return;
+      get().update(taskId, { subtasks: t.subtasks.filter((s) => s.id !== subtaskId) });
+      return target;
+    },
+
+    reorderSubtasks: (taskId, fromIndex, toIndex) => {
+      const t = find(taskId);
+      if (!t) return;
+      if (fromIndex < 0 || fromIndex >= t.subtasks.length || toIndex < 0 || toIndex >= t.subtasks.length) return;
+      const next = [...t.subtasks];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      get().update(taskId, { subtasks: next });
+    },
+
+    completeAllSubtasks: (taskId, done = true) => {
+      const t = find(taskId);
+      if (!t) return;
+      get().update(taskId, { subtasks: t.subtasks.map((s) => ({ ...s, done })) });
+    },
+
+    clearCompletedSubtasks: (taskId) => {
+      const t = find(taskId);
+      if (!t) return 0;
+      const kept = t.subtasks.filter((s) => !s.done);
+      const count = t.subtasks.length - kept.length;
+      if (count > 0) {
+        get().update(taskId, { subtasks: kept });
+      }
+      return count;
+    },
+
+    convertSubtaskToTask: (taskId, subtaskId) => {
+      const t = find(taskId);
+      if (!t) return;
+      const sub = t.subtasks.find((s) => s.id === subtaskId);
+      if (!sub) return;
+      get().update(taskId, { subtasks: t.subtasks.filter((s) => s.id !== subtaskId) });
+      const newTaskId = get().add({
+        title: sub.title,
+        priority: t.priority,
+        due: t.due,
+        list: t.list,
+        goalId: t.goalId,
+      });
+      return newTaskId;
+    },
+
     toggle: (id) => {
       const t = find(id);
       if (!t) return;
       if (!t.done) {
         const now = Date.now();
         const todayIso = iso(new Date(now));
+        const completedSubs = (t.subtasks || []).map((s) => ({ ...s, done: true }));
         if (t.recurrence) {
           const nextDue = computeNextDueDate(t.due, t.recurrence, todayIso);
           const nextId = newId();
@@ -176,12 +288,12 @@ export const useTasks = create<TaskState>((set, get) => {
           };
           spawnedMap.set(t.id, nextId);
           commit([
-            { id: t.id, data: { ...t, done: true, completedAt: now } },
+            { id: t.id, data: { ...t, done: true, completedAt: now, subtasks: completedSubs } },
             { id: nextId, data: nextTask },
           ]);
           return { nextDue, nextId };
         } else {
-          get().update(id, { done: true });
+          get().update(id, { done: true, subtasks: completedSubs });
         }
       } else {
         const spawnedId = spawnedMap.get(id);
