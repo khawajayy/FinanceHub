@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { CalendarDays, Check, CornerDownLeft, Flag, Hash, ListChecks, Plus, Repeat, RotateCw, Sparkles, Trash2, X } from "lucide-react";
+import { CalendarDays, Check, CornerDownLeft, Flag, GripVertical, Hash, ListChecks, Plus, Repeat, RotateCw, Sparkles, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Segmented } from "@/components/ui";
 import { dueLabel, iso, parseQuickAdd, recurrenceLabel, type Priority, type Task, type TaskRecurrence } from "@/engine/task-engine";
@@ -443,7 +443,35 @@ function GoalPicker({ value, onChange }: { value: string | null; onChange: (id: 
   );
 }
 
-export function TaskRow({ t, expanded, onExpand, compact }: { t: Task; expanded?: boolean; onExpand?: () => void; compact?: boolean }) {
+export function TaskRow({
+  t,
+  expanded,
+  onExpand,
+  compact,
+  draggable = true,
+  isDragging,
+  dropPosition,
+  onDragStart,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+  onDragEnd,
+  onTouchStartHandle,
+}: {
+  t: Task;
+  expanded?: boolean;
+  onExpand?: () => void;
+  compact?: boolean;
+  draggable?: boolean;
+  isDragging?: boolean;
+  dropPosition?: "before" | "after" | null;
+  onDragStart?: (e: React.DragEvent) => void;
+  onDragOver?: (e: React.DragEvent) => void;
+  onDragLeave?: (e: React.DragEvent) => void;
+  onDrop?: (e: React.DragEvent) => void;
+  onDragEnd?: (e: React.DragEvent) => void;
+  onTouchStartHandle?: (e: React.TouchEvent, taskId: string) => void;
+}) {
   const toggle = useTasks((s) => s.toggle);
   const remove = useTasks((s) => s.remove);
   const restore = useTasks((s) => s.restore);
@@ -451,10 +479,54 @@ export function TaskRow({ t, expanded, onExpand, compact }: { t: Task; expanded?
   const overdue = !t.done && t.due && t.due < today;
   const subDone = t.subtasks.filter((s) => s.done).length;
   return (
-    <motion.div layout="position" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -30, height: 0, transition: { duration: 0.22 } }}
-      className={cx("group relative border-b border-line/5 last:border-none", expanded && "bg-line/[.03]")}>
-      {t.priority === "high" && !t.done && <span className="absolute inset-y-2 left-0 w-[3px] rounded-full bg-pink shadow-[0_0_10px_rgb(var(--pink))]" />}
-      <div className={cx("flex cursor-pointer items-center gap-3", compact ? "px-4 py-2.5" : "px-4 py-3")} onClick={onExpand}>
+    <motion.div
+      layout="position"
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: isDragging ? 0.35 : 1, y: 0, scale: isDragging ? 0.98 : 1 }}
+      exit={{ opacity: 0, x: -30, height: 0, transition: { duration: 0.22 } }}
+      data-task-id={t.id}
+      draggable={draggable && !expanded}
+      onDragStartCapture={(e) => {
+        const target = e.target as HTMLElement;
+        if (target.closest('input, textarea, select, [role="checkbox"]') && !target.closest(".drag-handle")) {
+          e.preventDefault();
+          return;
+        }
+        onDragStart?.(e);
+      }}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+      onDragEndCapture={onDragEnd}
+      className={cx(
+        "group relative border-b border-line/5 last:border-none transition-colors",
+        expanded && "bg-line/[.03]",
+        isDragging && "bg-line/10 ring-1 ring-line/10"
+      )}
+    >
+      {dropPosition === "before" && (
+        <div className="pointer-events-none absolute left-0 right-0 top-0 z-20 h-[2.5px] bg-gradient-to-r from-cyan via-violet to-cyan shadow-[0_0_10px_rgb(var(--cyan))]" />
+      )}
+      {dropPosition === "after" && (
+        <div className="pointer-events-none absolute bottom-0 left-0 right-0 z-20 h-[2.5px] bg-gradient-to-r from-cyan via-violet to-cyan shadow-[0_0_10px_rgb(var(--cyan))]" />
+      )}
+      {t.priority === "high" && !t.done && (
+        <span className="absolute inset-y-2 left-0 w-[3px] rounded-full bg-pink shadow-[0_0_10px_rgb(var(--pink))]" />
+      )}
+      <div className={cx("flex cursor-pointer items-center gap-2 sm:gap-3", compact ? "px-4 py-2.5" : "px-3 sm:px-4 py-3")} onClick={onExpand}>
+        {!compact && draggable && (
+          <button
+            type="button"
+            className="drag-handle -ml-1 flex h-7 w-5 shrink-0 cursor-grab items-center justify-center rounded text-muted/30 transition hover:bg-line/10 hover:text-ink active:cursor-grabbing group-hover:text-muted/70"
+            aria-label="Drag to reorder"
+            title="Hold and drag to reorder / adjust attributes"
+            tabIndex={-1}
+            onClick={(e) => e.stopPropagation()}
+            onTouchStart={(e) => onTouchStartHandle?.(e, t.id)}
+          >
+            <GripVertical size={13} />
+          </button>
+        )}
         <CheckOrb done={t.done} label={`Complete ${t.title}`} onToggle={() => {
           const res = toggle(t.id);
           if (!t.done) {
