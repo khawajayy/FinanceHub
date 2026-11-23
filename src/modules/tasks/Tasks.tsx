@@ -1,8 +1,8 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { AlertTriangle, CheckCheck, Flame, ListTodo, Repeat, Search, Sparkles, Trash2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { AnimatedNumber, Card, Empty, Ring, Segmented, Skeleton } from "@/components/ui";
-import { BUCKET_LABEL, bucketOf, grouped, iso, recurrenceLabel, taskStats, type Bucket } from "@/engine/task-engine";
+import { BUCKET_LABEL, bucketOf, dueLabel, grouped, iso, recurrenceLabel, taskStats, type Bucket } from "@/engine/task-engine";
 import { cx } from "@/lib/format";
 import { useTasks } from "@/stores/tasks";
 import { confirmDialog, toast } from "@/stores/ui";
@@ -18,11 +18,18 @@ export default function Tasks() {
   const tasks = useTasks((s) => s.tasks);
   const clearCompleted = useTasks((s) => s.clearCompleted);
   const restore = useTasks((s) => s.restore);
+  const update = useTasks((s) => s.update);
+  const reorder = useTasks((s) => s.reorder);
+  const dropToBucket = useTasks((s) => s.dropToBucket);
   const [view, setView] = useState<View>("focus");
   const [list, setList] = useState<string | null>(null);
   const [recurringOnly, setRecurringOnly] = useState(false);
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<string | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ id: string; position: "before" | "after" } | null>(null);
+  const [hoveredBucket, setHoveredBucket] = useState<Bucket | null>(null);
+  const touchState = useRef<{ sourceId: string; lastTargetId: string | null; lastPos: "before" | "after" | null } | null>(null);
   const today = iso(new Date());
   const st = useMemo(() => taskStats(tasks), [tasks]);
 
@@ -39,6 +46,98 @@ export default function Tasks() {
   }, [tasks, list, recurringOnly, q, view, today]);
   const max7 = Math.max(1, ...st.last7.map((d) => d.count));
   const doneCount = tasks.filter((t) => t.done).length;
+
+  const handleTaskDrop = (sourceId: string, targetId: string, position: "before" | "after") => {
+    if (sourceId === targetId) return;
+    const sourceTask = tasks.find((t) => t.id === sourceId);
+    if (!sourceTask) return;
+    const prevAttrs = {
+      due: sourceTask.due,
+      priority: sourceTask.priority,
+      createdAt: sourceTask.createdAt,
+      done: sourceTask.done,
+      completedAt: sourceTask.completedAt,
+    };
+    const patch = reorder(sourceId, targetId, position);
+    setDraggingId(null);
+    setDropTarget(null);
+    setHoveredBucket(null);
+
+    if (patch && Object.keys(patch).length > 0) {
+      const desc: string[] = [];
+      if (patch.due !== undefined && patch.due !== prevAttrs.due) {
+        desc.push(patch.due ? dueLabel(patch.due, today) : "Someday");
+      }
+      if (patch.priority !== undefined && patch.priority !== prevAttrs.priority) {
+        desc.push(`!${patch.priority}`);
+      }
+      if (patch.done !== undefined && patch.done !== prevAttrs.done) {
+        desc.push(patch.done ? "Done" : "Reopened");
+      }
+      const summary = desc.length ? ` · ${desc.join(", ")}` : "";
+      toast(`Reordered "${sourceTask.title}"${summary}`, false, {
+        label: "Undo",
+        onClick: () => update(sourceId, prevAttrs),
+      });
+    }
+  };
+
+  const handleBucketDrop = (sourceId: string, bucket: Bucket) => {
+    const sourceTask = tasks.find((t) => t.id === sourceId);
+    if (!sourceTask) return;
+    const prevAttrs = {
+      due: sourceTask.due,
+      priority: sourceTask.priority,
+      createdAt: sourceTask.createdAt,
+      done: sourceTask.done,
+      completedAt: sourceTask.completedAt,
+    };
+    const patch = dropToBucket(sourceId, bucket);
+    setDraggingId(null);
+    setDropTarget(null);
+    setHoveredBucket(null);
+
+    if (patch && Object.keys(patch).length > 0) {
+      const label = BUCKET_LABEL[bucket];
+      const pri = patch.priority ? ` · !${patch.priority}` : "";
+      toast(`Moved "${sourceTask.title}" to ${label}${pri}`, false, {
+        label: "Undo",
+        onClick: () => update(sourceId, prevAttrs),
+      });
+    }
+  };
+
+  const handleTouchStart = (_e: React.TouchEvent, id: string) => {
+    touchState.current = { sourceId: id, lastTargetId: null, lastPos: null };
+    setDraggingId(id);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!touchState.current) return;
+    const touch = e.touches[0];
+    const el = document.elementFromPoint(touch.clientX, touch.clientY);
+    const row = el?.closest("[data-task-id]") as HTMLElement | null;
+    if (row && row.dataset.taskId && row.dataset.taskId !== touchState.current.sourceId) {
+      const rect = row.getBoundingClientRect();
+      const isUpper = touch.clientY - rect.top < rect.height / 2;
+      const position = isUpper ? "before" : "after";
+      touchState.current.lastTargetId = row.dataset.taskId;
+      touchState.current.lastPos = position;
+      setDropTarget({ id: row.dataset.taskId, position });
+      setHoveredBucket(null);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (touchState.current && touchState.current.lastTargetId && touchState.current.lastPos) {
+      handleTaskDrop(touchState.current.sourceId, touchState.current.lastTargetId, touchState.current.lastPos);
+    } else {
+      setDraggingId(null);
+      setDropTarget(null);
+      setHoveredBucket(null);
+    }
+    touchState.current = null;
+  };
 
   return (
     <>
@@ -69,16 +168,47 @@ export default function Tasks() {
             )}
 
             <Card>
-              {!groups.length ? (
-                <Empty icon={view === "done" ? "🏁" : "✨"} title={view === "focus" ? "Nothing due — you're clear" : view === "done" ? "Nothing completed yet" : "No tasks here"}
-                  sub={view === "focus" ? "No overdue, today or tomorrow tasks. Enjoy it, or plan ahead in Upcoming." : "Add one above. Dates, !priority and #lists are understood automatically."} />
-              ) : (
-                <div>
+              <div onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
+                {!groups.length ? (
+                  <Empty icon={view === "done" ? "🏁" : "✨"} title={view === "focus" ? "Nothing due — you're clear" : view === "done" ? "Nothing completed yet" : "No tasks here"}
+                    sub={view === "focus" ? "No overdue, today or tomorrow tasks. Enjoy it, or plan ahead in Upcoming." : "Add one above. Dates, !priority and #lists are understood automatically."} />
+                ) : (
+                  <div>
                   {groups.map((g) => (
                     <section key={g.bucket}>
-                      <div className="sticky top-0 z-[1] flex items-center gap-2 border-b border-line/5 bg-bg/40 px-4 py-2 backdrop-blur">
+                      <div
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = "move";
+                          if (hoveredBucket !== g.bucket) {
+                            setHoveredBucket(g.bucket);
+                            setDropTarget(null);
+                          }
+                        }}
+                        onDragLeave={(e) => {
+                          if (hoveredBucket === g.bucket && !e.currentTarget.contains(e.relatedTarget as Node)) {
+                            setHoveredBucket(null);
+                          }
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          const srcId = draggingId || e.dataTransfer.getData("text/plain");
+                          if (srcId) {
+                            handleBucketDrop(srcId, g.bucket);
+                          }
+                        }}
+                        className={cx(
+                          "sticky top-0 z-[1] flex items-center gap-2 border-b border-line/5 bg-bg/40 px-4 py-2 backdrop-blur transition-all",
+                          hoveredBucket === g.bucket && "bg-cyan/15 ring-1 ring-cyan/40"
+                        )}
+                      >
                         <span className={cx("text-[11px] font-bold uppercase tracking-[0.14em]", BUCKET_TONE[g.bucket] || "text-muted")}>{BUCKET_LABEL[g.bucket]}</span>
                         <span className="num text-[11px] text-muted">{g.tasks.length}</span>
+                        {hoveredBucket === g.bucket && (
+                          <span className="ml-2 text-[10px] font-semibold text-cyan animate-pulse">
+                            Drop to move into {BUCKET_LABEL[g.bucket]}
+                          </span>
+                        )}
                         {g.bucket === "done" && (
                           <button className="ml-auto inline-flex items-center gap-1 text-[11px] text-muted hover:text-neg" onClick={async () => {
                             if (!(await confirmDialog("Clear completed", `Delete all ${doneCount} completed task(s)?`, { confirmText: "Clear", danger: true }))) return;
@@ -89,15 +219,58 @@ export default function Tasks() {
                         )}
                       </div>
                       <AnimatePresence initial={false}>
-                        {g.tasks.map((t) => <TaskRow key={t.id} t={t} expanded={open === t.id} onExpand={() => setOpen(open === t.id ? null : t.id)} />)}
+                        {g.tasks.map((t) => (
+                          <TaskRow
+                            key={t.id}
+                            t={t}
+                            expanded={open === t.id}
+                            onExpand={() => setOpen(open === t.id ? null : t.id)}
+                            isDragging={draggingId === t.id}
+                            dropPosition={dropTarget?.id === t.id ? dropTarget.position : null}
+                            onDragStart={(e) => {
+                              setDraggingId(t.id);
+                              e.dataTransfer.setData("text/plain", t.id);
+                              e.dataTransfer.effectAllowed = "move";
+                            }}
+                            onDragOver={(e) => {
+                              e.preventDefault();
+                              if (draggingId && draggingId !== t.id) {
+                                e.dataTransfer.dropEffect = "move";
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                const isUpper = e.clientY - rect.top < rect.height / 2;
+                                setDropTarget({ id: t.id, position: isUpper ? "before" : "after" });
+                                setHoveredBucket(null);
+                              }
+                            }}
+                            onDragLeave={(e) => {
+                              if (dropTarget?.id === t.id && !e.currentTarget.contains(e.relatedTarget as Node)) {
+                                setDropTarget(null);
+                              }
+                            }}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              const srcId = draggingId || e.dataTransfer.getData("text/plain");
+                              if (srcId && dropTarget && dropTarget.id === t.id) {
+                                handleTaskDrop(srcId, t.id, dropTarget.position);
+                              }
+                            }}
+                            onDragEnd={() => {
+                              setDraggingId(null);
+                              setDropTarget(null);
+                              setHoveredBucket(null);
+                            }}
+                            onTouchStartHandle={handleTouchStart}
+                          />
+                        ))}
                       </AnimatePresence>
                     </section>
                   ))}
                 </div>
               )}
+              </div>
             </Card>
             <p className="px-1 text-[11.5px] text-muted">
-              Quick add understands <b>today</b>, <b>tomorrow</b>, weekdays (<b>fri</b>), <b>next week</b>, <b>in 3 days</b>, <b>25 oct</b>, priorities <b>!high</b> / <b>!low</b>, lists like <b>#finance</b> and recurrences like <b>daily</b>, <b>weekly</b> or <b>every 2 days</b>. Click a task to edit notes, dates, subtasks and recurrence.
+              <b>Hold &amp; drag</b> tasks to reorder them — due dates and priorities adjust automatically (e.g. drag to the top for <b>!high</b> priority). Quick add understands <b>today</b>, <b>tomorrow</b>, weekdays (<b>fri</b>), <b>next week</b>, <b>in 3 days</b>, <b>25 oct</b>, priorities <b>!high</b> / <b>!low</b>, lists like <b>#finance</b> and recurrences like <b>daily</b>, <b>weekly</b> or <b>every 2 days</b>. Click a task to edit notes, dates, subtasks and recurrence.
             </p>
           </div>
 

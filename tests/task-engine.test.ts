@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 import {
   bucketOf,
+  calculateBucketDrop,
+  calculateTaskReorder,
   cleanRecurrence,
   computeNextDueDate,
   dueLabel,
@@ -8,6 +10,7 @@ import {
   grouped,
   parseQuickAdd,
   recurrenceLabel,
+  sortTasks,
   taskStats,
   type Task,
 } from "../src/engine/task-engine";
@@ -174,5 +177,114 @@ describe("buckets, focus and stats", () => {
   test("due labels", () => {
     expect(dueLabel(T, T)).toBe("Today");
     expect(dueLabel("2026-10-14", T)).toBe("3d overdue");
+  });
+});
+
+describe("task reordering & drag-to-adjust attributes", () => {
+  test("dragging a later task before overdue task puts it at the top with high priority", () => {
+    const overdue = task({ id: "o1", due: "2026-10-10", priority: "med", createdAt: 1000 });
+    const later = task({ id: "l1", due: "2026-10-30", priority: "low", createdAt: 2000 });
+    const patch = calculateTaskReorder([overdue, later], "l1", "o1", "before", T);
+    expect(patch).toMatchObject({
+      due: "2026-10-10",
+      priority: "high",
+    });
+    expect(patch!.createdAt).toBeLessThan(overdue.createdAt);
+    // Verify it now sorts first
+    const updated = { ...later, ...patch };
+    expect([overdue, updated].sort(sortTasks)[0].id).toBe("l1");
+  });
+
+  test("dragging a later task before a due today task puts it on top of today's tasks with high priority", () => {
+    const dueToday = task({ id: "d1", due: T, priority: "med", createdAt: 1500 });
+    const later = task({ id: "l1", due: "2026-10-25", priority: "low", createdAt: 3000 });
+    const patch = calculateTaskReorder([dueToday, later], "l1", "d1", "before", T);
+    expect(patch).toMatchObject({
+      due: T,
+      priority: "high",
+    });
+    expect(patch!.createdAt).toBeLessThan(dueToday.createdAt);
+    const updated = { ...later, ...patch };
+    expect([dueToday, updated].sort(sortTasks)[0].id).toBe("l1");
+  });
+
+  test("dragging a later task on top of due tasks when overdue tasks exist", () => {
+    const overdue = task({ id: "o1", due: "2026-10-12", priority: "med", createdAt: 1000 });
+    const dueToday = task({ id: "d1", due: T, priority: "med", createdAt: 1500 });
+    const later = task({ id: "l1", due: "2026-10-28", priority: "low", createdAt: 2000 });
+    const patch = calculateTaskReorder([overdue, dueToday, later], "l1", "d1", "before", T);
+    expect(patch).toMatchObject({
+      due: T,
+      priority: "high",
+    });
+    const updated = { ...later, ...patch };
+    const sorted = [overdue, dueToday, updated].sort(sortTasks);
+    expect(sorted.map((t) => t.id)).toEqual(["o1", "l1", "d1"]);
+  });
+
+  test("dragging within same bucket: low priority above high priority becomes high priority", () => {
+    const high = task({ id: "h1", due: T, priority: "high", createdAt: 1000 });
+    const low = task({ id: "w1", due: T, priority: "low", createdAt: 2000 });
+    const patch = calculateTaskReorder([high, low], "w1", "h1", "before", T);
+    expect(patch).toMatchObject({
+      due: T,
+      priority: "high",
+    });
+    expect(patch!.createdAt).toBeLessThan(high.createdAt);
+    const updated = { ...low, ...patch };
+    expect([high, updated].sort(sortTasks)[0].id).toBe("w1");
+  });
+
+  test("dragging within same bucket: high priority dragged after low priority becomes low priority", () => {
+    const high = task({ id: "h1", due: T, priority: "high", createdAt: 1000 });
+    const low = task({ id: "w1", due: T, priority: "low", createdAt: 2000 });
+    const patch = calculateTaskReorder([high, low], "h1", "w1", "after", T);
+    expect(patch).toMatchObject({
+      due: T,
+      priority: "low",
+    });
+    expect(patch!.createdAt).toBeGreaterThan(low.createdAt);
+    const updated = { ...high, ...patch };
+    expect([updated, low].sort(sortTasks)[1].id).toBe("h1");
+  });
+
+  test("dragging between two tasks with same priority places createdAt in-between", () => {
+    const t1 = task({ id: "t1", due: T, priority: "med", createdAt: 1000 });
+    const t2 = task({ id: "t2", due: T, priority: "med", createdAt: 3000 });
+    const t3 = task({ id: "t3", due: "2026-10-29", priority: "low", createdAt: 5000 });
+    const patch = calculateTaskReorder([t1, t2, t3], "t3", "t2", "before", T);
+    expect(patch).toMatchObject({
+      due: T,
+      priority: "med",
+      createdAt: 2000,
+    });
+    const updated = { ...t3, ...patch };
+    const sorted = [t1, t2, updated].sort(sortTasks);
+    expect(sorted.map((t) => t.id)).toEqual(["t1", "t3", "t2"]);
+  });
+
+  test("dragging open task onto completed task marks it completed", () => {
+    const open = task({ id: "o1", due: T, done: false });
+    const done = task({ id: "d1", due: T, done: true, completedAt: 1000 });
+    const patch = calculateTaskReorder([open, done], "o1", "d1", "before", T);
+    expect(patch?.done).toBe(true);
+    expect(typeof patch?.completedAt).toBe("number");
+  });
+
+  test("calculateBucketDrop sets appropriate dates and priorities", () => {
+    const t1 = task({ id: "t1", due: "2026-10-30", priority: "low" });
+    expect(calculateBucketDrop(t1, "today", T)).toMatchObject({
+      due: T,
+      priority: "high",
+    });
+    expect(calculateBucketDrop(t1, "tomorrow", T)).toMatchObject({
+      due: "2026-10-18",
+    });
+    expect(calculateBucketDrop(t1, "someday", T)).toMatchObject({
+      due: null,
+    });
+    expect(calculateBucketDrop(t1, "done", T)).toMatchObject({
+      done: true,
+    });
   });
 });

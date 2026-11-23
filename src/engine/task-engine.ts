@@ -362,3 +362,168 @@ export function dueLabel(due: string, todayIso: string) {
   if (d < 7) return parseIso(due).toLocaleDateString(undefined, { weekday: "short" });
   return parseIso(due).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 }
+
+export interface ReorderResult {
+  due?: string | null;
+  priority?: Priority;
+  createdAt?: number;
+  done?: boolean;
+  completedAt?: number | null;
+}
+
+/**
+ * Calculates adjusted attributes when dragging a task before or after a target task.
+ * Automatically aligns due dates, elevates/adjusts priority, and offsets createdAt
+ * so the task lands precisely at the desired position in sortTasks().
+ */
+export function calculateTaskReorder(
+  tasks: Task[],
+  sourceId: string,
+  targetId: string,
+  position: "before" | "after",
+  _todayIso?: string
+): ReorderResult | null {
+  const source = tasks.find((t) => t.id === sourceId);
+  const target = tasks.find((t) => t.id === targetId);
+  if (!source || !target || source.id === target.id) return null;
+
+  // Sort remaining tasks to see their visual layout
+  const sorted = [...tasks.filter((t) => t.id !== sourceId)].sort(sortTasks);
+  const targetIdx = sorted.findIndex((t) => t.id === targetId);
+  if (targetIdx === -1) return null;
+
+  const prev: Task | undefined = position === "before" ? sorted[targetIdx - 1] : sorted[targetIdx];
+  const next: Task | undefined = position === "before" ? sorted[targetIdx] : sorted[targetIdx + 1];
+
+  const patch: ReorderResult = {};
+
+  // Done status transition
+  const targetDone = position === "before" ? next?.done : (prev?.done ?? next?.done);
+  if (targetDone !== undefined && targetDone !== source.done) {
+    patch.done = targetDone;
+    patch.completedAt = targetDone ? Date.now() : null;
+  }
+
+  // Case 1: Placed at the very top of the list (e.g. above overdue or first due task)
+  if (!prev && next) {
+    patch.due = next.due;
+    patch.priority = "high";
+    patch.createdAt = (next.createdAt || Date.now()) - 1000;
+    return patch;
+  }
+
+  // Case 2: Placed at the very bottom of the list
+  if (prev && !next) {
+    patch.due = prev.due;
+    patch.priority = prev.priority;
+    patch.createdAt = (prev.createdAt || Date.now()) + 1000;
+    return patch;
+  }
+
+  // Case 3: Placed between prev and next
+  if (prev && next) {
+    // Subcase 3A: Both have the same due date (or both null)
+    if (prev.due === next.due) {
+      patch.due = prev.due;
+      const priRank: Record<Priority, number> = { high: 0, med: 1, low: 2 };
+      const pPrev = priRank[prev.priority];
+      const pNext = priRank[next.priority];
+
+      if (pPrev === pNext) {
+        patch.priority = prev.priority;
+        const diff = next.createdAt - prev.createdAt;
+        if (diff > 1) {
+          patch.createdAt = Math.floor((prev.createdAt + next.createdAt) / 2);
+        } else {
+          patch.createdAt = prev.createdAt + 1;
+        }
+      } else if (pPrev < pNext) {
+        // e.g. prev is high (0), next is med (1) or low (2)
+        if (position === "before") {
+          patch.priority = next.priority;
+          patch.createdAt = next.createdAt - 1000;
+        } else {
+          patch.priority = prev.priority;
+          patch.createdAt = prev.createdAt + 1000;
+        }
+      } else {
+        patch.priority = next.priority;
+        patch.createdAt = next.createdAt - 1000;
+      }
+      return patch;
+    }
+
+    // Subcase 3B: Different due dates (boundary between overdue and today, or today and tomorrow)
+    if (position === "before") {
+      // Land at the top of next's group
+      patch.due = next.due;
+      patch.priority = "high";
+      patch.createdAt = (next.createdAt || Date.now()) - 1000;
+    } else {
+      // Land at the bottom of prev's group
+      patch.due = prev.due;
+      patch.priority = prev.priority;
+      patch.createdAt = (prev.createdAt || Date.now()) + 1000;
+    }
+    return patch;
+  }
+
+  return patch;
+}
+
+/**
+ * Calculates attribute changes when dragging directly onto a bucket header or empty bucket.
+ */
+export function calculateBucketDrop(
+  task: Task,
+  bucket: Bucket,
+  todayIso: string,
+  existingTasksInBucket: Task[] = []
+): ReorderResult {
+  const patch: ReorderResult = {};
+  if (bucket === "done") {
+    patch.done = true;
+    patch.completedAt = Date.now();
+    return patch;
+  }
+
+  if (task.done) {
+    patch.done = false;
+    patch.completedAt = null;
+  }
+
+  const todayDate = parseIso(todayIso);
+  const sorted = [...existingTasksInBucket].sort(sortTasks);
+  const first = sorted[0];
+
+  switch (bucket) {
+    case "overdue":
+      patch.due = first && first.due ? first.due : iso(addDays(todayDate, -1));
+      patch.priority = "high";
+      break;
+    case "today":
+      patch.due = todayIso;
+      patch.priority = "high";
+      break;
+    case "tomorrow":
+      patch.due = iso(addDays(todayDate, 1));
+      break;
+    case "week":
+      patch.due = first && first.due ? first.due : iso(addDays(todayDate, 3));
+      break;
+    case "later":
+      patch.due = first && first.due ? first.due : iso(addDays(todayDate, 14));
+      break;
+    case "someday":
+      patch.due = null;
+      break;
+  }
+
+  if (first) {
+    patch.createdAt = (first.createdAt || Date.now()) - 1000;
+  } else {
+    patch.createdAt = Date.now();
+  }
+
+  return patch;
+}

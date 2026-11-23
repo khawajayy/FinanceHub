@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { collection, doc, onSnapshot, writeBatch, type Unsubscribe } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { DEMO, demoTasks } from "@/lib/demo";
-import { cleanRecurrence, computeNextDueDate, iso, type Priority, type Subtask, type Task } from "@/engine/task-engine";
+import { bucketOf, calculateBucketDrop, calculateTaskReorder, cleanRecurrence, computeNextDueDate, iso, type Bucket, type Priority, type Subtask, type Task } from "@/engine/task-engine";
 import { toast } from "./ui";
 
 /*
@@ -19,7 +19,9 @@ interface TaskState {
   start: (uid: string) => void;
   stop: () => void;
   add: (t: TaskInput) => string;
-  update: (id: string, patch: Partial<Omit<Task, "id" | "createdAt">>) => void;
+  update: (id: string, patch: Partial<Omit<Task, "id">>) => void;
+  reorder: (sourceId: string, targetId: string, position: "before" | "after") => Partial<Task> | null;
+  dropToBucket: (sourceId: string, bucket: Bucket) => Partial<Task> | null;
   toggle: (id: string) => { nextDue?: string; nextId?: string } | void;
   remove: (id: string) => Task | undefined;
   restore: (t: Task) => void;
@@ -119,8 +121,34 @@ export const useTasks = create<TaskState>((set, get) => {
       const next = { ...t, ...patch };
       if (patch.done !== undefined) next.completedAt = patch.done ? (t.completedAt ?? Date.now()) : null;
       if (patch.recurrence !== undefined) next.recurrence = patch.recurrence ? cleanRecurrence(patch.recurrence) : null;
+      if (patch.createdAt !== undefined) next.createdAt = Number(patch.createdAt) || t.createdAt;
       next.title = next.title.slice(0, 200); next.notes = next.notes.slice(0, 2000);
       commit([{ id, data: next }]);
+    },
+
+    reorder: (sourceId, targetId, position) => {
+      const tasks = get().tasks;
+      const source = tasks.find((t) => t.id === sourceId);
+      if (!source) return null;
+      const today = iso(new Date());
+      const patch = calculateTaskReorder(tasks, sourceId, targetId, position, today);
+      if (patch && Object.keys(patch).length > 0) {
+        get().update(sourceId, patch);
+      }
+      return patch;
+    },
+
+    dropToBucket: (sourceId, bucket) => {
+      const tasks = get().tasks;
+      const source = tasks.find((t) => t.id === sourceId);
+      if (!source) return null;
+      const today = iso(new Date());
+      const inBucket = tasks.filter((t) => bucketOf(t, today) === bucket && t.id !== sourceId);
+      const patch = calculateBucketDrop(source, bucket, today, inBucket);
+      if (patch && Object.keys(patch).length > 0) {
+        get().update(sourceId, patch);
+      }
+      return patch;
     },
 
     toggle: (id) => {
